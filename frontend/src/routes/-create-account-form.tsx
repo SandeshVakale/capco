@@ -15,47 +15,96 @@ import styles from './account-access.module.css'
 
 export interface CreateAccountFormProps {
   onNavigate?: (href: string) => void
+  onValidSubmit?: (credentials: {
+    email: string
+    password: string
+  }) => void | Promise<void>
   returnTo?: string
 }
 
 const passwordGuidance =
   'Use at least six characters, including one uppercase letter and one special character.'
 
+interface RegistrationErrors {
+  email?: string
+  password?: string
+  passwordConfirmation?: string
+}
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const uppercasePattern = /\p{Lu}/u
+const specialCharacterPattern = /[^\p{L}\p{N}]/u
+
+function validateRegistration(
+  email: string,
+  password: string,
+  passwordConfirmation: string,
+): RegistrationErrors {
+  const errors: RegistrationErrors = {}
+  const normalizedEmail = email.trim()
+
+  if (!normalizedEmail) {
+    errors.email = 'Enter an email address.'
+  } else if (!emailPattern.test(normalizedEmail)) {
+    errors.email = 'Enter a valid email address.'
+  }
+
+  if (!password) {
+    errors.password = 'Enter a password.'
+  } else if (
+    password.length < 6 ||
+    !uppercasePattern.test(password) ||
+    !specialCharacterPattern.test(password)
+  ) {
+    errors.password = passwordGuidance
+  }
+
+  if (!passwordConfirmation) {
+    errors.passwordConfirmation = 'Confirm your password.'
+  } else if (passwordConfirmation !== password) {
+    errors.passwordConfirmation = 'Passwords must match.'
+  }
+
+  return errors
+}
+
 export function CreateAccountForm({
   onNavigate,
+  onValidSubmit,
   returnTo,
 }: CreateAccountFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string>()
-  const [emailError, setEmailError] = useState<string>()
-  const [passwordError, setPasswordError] = useState<string>()
-  const [successMessage, setSuccessMessage] = useState<string>()
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [errors, setErrors] = useState<RegistrationErrors>({})
   const emailInput = useRef<HTMLInputElement>(null)
   const passwordInput = useRef<HTMLInputElement>(null)
+  const passwordConfirmationInput = useRef<HTMLInputElement>(null)
+  const hasErrors = Object.values(errors).some(Boolean)
 
   useEffect(() => {
-    if (emailError) {
+    if (errors.email) {
       emailInput.current?.focus()
-    } else if (passwordError) {
+    } else if (errors.password) {
       passwordInput.current?.focus()
+    } else if (errors.passwordConfirmation) {
+      passwordConfirmationInput.current?.focus()
     }
-  }, [emailError, passwordError])
+  }, [errors])
 
   async function submit(): Promise<void> {
-    setError(undefined)
-    setEmailError(undefined)
-    setPasswordError(undefined)
-    setSuccessMessage(undefined)
+    const validationErrors = validateRegistration(
+      email,
+      password,
+      passwordConfirmation,
+    )
+    setErrors(validationErrors)
 
-    try {
-      setPassword('')
-      setSuccessMessage(
-        'Account form is ready. Sign-in is available for this prototype.',
-      )
-    } catch {
-      setError('Account form could not be completed.')
+    if (Object.keys(validationErrors).length > 0) {
+      return
     }
+
+    await onValidSubmit?.({ email: email.trim(), password })
   }
 
   return (
@@ -79,28 +128,23 @@ export function CreateAccountForm({
                 Create credentials to begin your KYC application.
               </Typography>
             </Stack>
-            {(error ?? emailError ?? passwordError) ? (
+            {hasErrors ? (
               <Alert aria-live="assertive" role="alert" severity="error">
-                {error ?? emailError ?? passwordError}
-              </Alert>
-            ) : null}
-            {successMessage ? (
-              <Alert aria-live="polite" role="status" severity="success">
-                {successMessage}
+                Check the highlighted fields and try again.
               </Alert>
             ) : null}
             <TextField
               autoComplete="email"
-              error={Boolean(emailError)}
+              error={Boolean(errors.email)}
               fullWidth
-              helperText={emailError}
+              helperText={errors.email}
               id="applicant-email"
               inputRef={emailInput}
               label="Email address"
               name="email"
               onChange={(event) => {
                 setEmail(event.target.value)
-                setEmailError(undefined)
+                setErrors((current) => ({ ...current, email: undefined }))
               }}
               required
               type="email"
@@ -108,20 +152,44 @@ export function CreateAccountForm({
             />
             <TextField
               autoComplete="new-password"
-              error={Boolean(passwordError)}
+              error={Boolean(errors.password)}
               fullWidth
-              helperText={passwordError ?? passwordGuidance}
+              helperText={errors.password ?? passwordGuidance}
               id="applicant-password"
               inputRef={passwordInput}
               label="Password"
               name="password"
               onChange={(event) => {
                 setPassword(event.target.value)
-                setPasswordError(undefined)
+                setErrors((current) => ({
+                  ...current,
+                  password: undefined,
+                  passwordConfirmation: undefined,
+                }))
               }}
               required
               type="password"
               value={password}
+            />
+            <TextField
+              autoComplete="new-password"
+              error={Boolean(errors.passwordConfirmation)}
+              fullWidth
+              helperText={errors.passwordConfirmation}
+              id="applicant-password-confirmation"
+              inputRef={passwordConfirmationInput}
+              label="Confirm password"
+              name="passwordConfirmation"
+              onChange={(event) => {
+                setPasswordConfirmation(event.target.value)
+                setErrors((current) => ({
+                  ...current,
+                  passwordConfirmation: undefined,
+                }))
+              }}
+              required
+              type="password"
+              value={passwordConfirmation}
             />
             <Button
               className={styles.submit}
