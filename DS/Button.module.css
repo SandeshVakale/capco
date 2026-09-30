@@ -14,6 +14,20 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+.button[data-focus-visible] {
+  outline: 3px solid #172b4d;
+  outline-offset: 2px;
+}
+.button[data-hovered]:not([data-disabled], [data-pending]) {
+  filter: brightness(0.92);
+}
+.button[data-pressed]:not([data-disabled], [data-pending]) {
+  transform: translateY(1px);
+}
+.button[data-pending] {
+  cursor: wait;
+  opacity: 0.7;
+}
 .primary {
   background: #3157c8;
   color: white;
