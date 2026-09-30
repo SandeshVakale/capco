@@ -61,15 +61,26 @@ describe('CreateAccountForm', () => {
     expect(screen.getByLabelText('Confirm password')).toHaveValue('')
   })
 
-  it('prevents duplicate submission while account creation is pending', () => {
-    render(<CreateAccountForm isSubmitting />)
+  it('prevents duplicate submission while keeping the pending button focusable', async () => {
+    const user = userEvent.setup()
+    const onValidSubmit = vi.fn()
+    const { rerender } = render(
+      <CreateAccountForm onValidSubmit={onValidSubmit} />,
+    )
 
-    expect(
-      screen.getByRole('button', { name: 'Creating account…' }),
-    ).toBeDisabled()
+    await user.type(screen.getByLabelText('Email address'), 'user@example.com')
+    await user.type(screen.getByLabelText('Password'), 'Secure!1')
+    await user.type(screen.getByLabelText('Confirm password'), 'Secure!1')
+    rerender(<CreateAccountForm isSubmitting onValidSubmit={onValidSubmit} />)
+
+    const button = screen.getByRole('button', { name: 'Creating account…' })
+    expect(button).toHaveAttribute('data-pending')
+    expect(button).not.toBeDisabled()
     expect(screen.getByLabelText('Email address')).toBeDisabled()
     expect(screen.getByLabelText('Password')).toBeDisabled()
     expect(screen.getByLabelText('Confirm password')).toBeDisabled()
+    await user.click(button)
+    expect(onValidSubmit).not.toHaveBeenCalled()
   })
 
   it('shows API field validation beside the relevant field', () => {

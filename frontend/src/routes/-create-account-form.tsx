@@ -261,7 +261,7 @@ export function CreateAccountForm({
             <Button
               className={styles.submit}
               fullWidth
-              isDisabled={isSubmitting}
+              isPending={isSubmitting}
               size="large"
               type="submit"
             >

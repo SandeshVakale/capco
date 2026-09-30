@@ -102,6 +102,13 @@
   gap: 6px;
   min-width: 0;
 }
+.textField[data-required] label::after {
+  content: ' *';
+  color: #b42318;
+}
+.textField[data-disabled] {
+  opacity: 0.65;
+}
 .fullWidth {
   display: flex;
   width: 100%;
@@ -124,6 +131,9 @@
 }
 .input[data-invalid] {
   border-color: #b42318;
+}
+.input[data-disabled] {
+  cursor: not-allowed;
 }
 .description {
   color: #526176;

@@ -214,6 +214,9 @@ export function TextField({
   id,
   className,
   inputClassName,
+  disabled,
+  readOnly,
+  required,
   ...props
 }: TextFieldProps) {
   const generatedId = useId()
@@ -221,7 +224,9 @@ export function TextField({
     <AriaTextField
       id={id ?? generatedId}
       isInvalid={error}
-      isDisabled={props.disabled}
+      isDisabled={disabled}
+      isReadOnly={readOnly}
+      isRequired={required}
       className={[styles.textField, fullWidth && styles.fullWidth, className]
         .filter(Boolean)
         .join(' ')}
