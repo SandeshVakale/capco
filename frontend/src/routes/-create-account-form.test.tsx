@@ -57,6 +57,49 @@ describe('CreateAccountForm', () => {
         password: 'Secure!1',
       })
     })
+    expect(screen.getByLabelText('Password')).toHaveValue('')
+    expect(screen.getByLabelText('Confirm password')).toHaveValue('')
+  })
+
+  it('prevents duplicate submission while account creation is pending', () => {
+    render(<CreateAccountForm isSubmitting />)
+
+    expect(
+      screen.getByRole('button', { name: 'Creating account…' }),
+    ).toBeDisabled()
+    expect(screen.getByLabelText('Email address')).toBeDisabled()
+    expect(screen.getByLabelText('Password')).toBeDisabled()
+    expect(screen.getByLabelText('Confirm password')).toBeDisabled()
+  })
+
+  it('shows API field validation beside the relevant field', () => {
+    render(
+      <CreateAccountForm
+        submissionError={{
+          message: 'Check the highlighted fields and try again.',
+          fieldErrors: { email: 'That email cannot be used.' },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Check the highlighted fields and try again.',
+    )
+    expect(screen.getByText('That email cannot be used.')).toBeVisible()
+    expect(screen.getByLabelText('Email address')).toHaveFocus()
+  })
+
+  it('confirms success and links to sign in without retaining credentials', () => {
+    render(<CreateAccountForm isSuccess returnTo="/applications/current" />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Account created' }),
+    ).toBeVisible()
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/sign-in?returnTo=%2Fapplications%2Fcurrent',
+    )
   })
 
   it('has no automated accessibility violations', async () => {

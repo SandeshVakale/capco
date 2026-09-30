@@ -13,13 +13,19 @@ import { useEffect, useRef, useState } from 'react'
 import { accountAccessHref } from './-return-target'
 import styles from './account-access.module.css'
 
+import type { RegistrationSubmissionError } from './-applicant-registration-api'
+
 export interface CreateAccountFormProps {
+  isSubmitting?: boolean
+  isSuccess?: boolean
+  onEdit?: () => void
   onNavigate?: (href: string) => void
   onValidSubmit?: (credentials: {
     email: string
     password: string
   }) => void | Promise<void>
   returnTo?: string
+  submissionError?: RegistrationSubmissionError
 }
 
 const passwordGuidance =
@@ -69,9 +75,13 @@ function validateRegistration(
 }
 
 export function CreateAccountForm({
+  isSubmitting = false,
+  isSuccess = false,
+  onEdit,
   onNavigate,
   onValidSubmit,
   returnTo,
+  submissionError,
 }: CreateAccountFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -80,17 +90,29 @@ export function CreateAccountForm({
   const emailInput = useRef<HTMLInputElement>(null)
   const passwordInput = useRef<HTMLInputElement>(null)
   const passwordConfirmationInput = useRef<HTMLInputElement>(null)
-  const hasErrors = Object.values(errors).some(Boolean)
+  const displayedErrors = {
+    ...errors,
+    ...submissionError?.fieldErrors,
+  }
+  const errorMessage =
+    submissionError?.message ??
+    (Object.values(errors).some(Boolean)
+      ? 'Check the highlighted fields and try again.'
+      : undefined)
 
   useEffect(() => {
-    if (errors.email) {
+    if (displayedErrors.email) {
       emailInput.current?.focus()
-    } else if (errors.password) {
+    } else if (displayedErrors.password) {
       passwordInput.current?.focus()
-    } else if (errors.passwordConfirmation) {
+    } else if (displayedErrors.passwordConfirmation) {
       passwordConfirmationInput.current?.focus()
     }
-  }, [errors])
+  }, [
+    displayedErrors.email,
+    displayedErrors.password,
+    displayedErrors.passwordConfirmation,
+  ])
 
   async function submit(): Promise<void> {
     const validationErrors = validateRegistration(
@@ -104,7 +126,46 @@ export function CreateAccountForm({
       return
     }
 
-    await onValidSubmit?.({ email: email.trim(), password })
+    try {
+      await onValidSubmit?.({ email: email.trim(), password })
+      setPassword('')
+      setPasswordConfirmation('')
+    } catch {
+      // The route exposes rejected submission feedback through submissionError.
+    }
+  }
+
+  const signInHref = accountAccessHref('/sign-in', returnTo)
+
+  if (isSuccess) {
+    return (
+      <main className={styles.page}>
+        <Card className={styles.card}>
+          <CardContent className={styles.cardContent}>
+            <Stack spacing={3}>
+              <Typography component="h1" variant="heading">
+                Account created
+              </Typography>
+              <Alert aria-live="polite" role="status" severity="success">
+                Your account has been created. Sign in to continue your KYC
+                application.
+              </Alert>
+              <Link
+                href={signInHref}
+                onClick={(event) => {
+                  if (onNavigate) {
+                    event.preventDefault()
+                    onNavigate(signInHref)
+                  }
+                }}
+              >
+                Sign in
+              </Link>
+            </Stack>
+          </CardContent>
+        </Card>
+      </main>
+    )
   }
 
   return (
@@ -128,16 +189,17 @@ export function CreateAccountForm({
                 Create credentials to begin your KYC application.
               </Typography>
             </Stack>
-            {hasErrors ? (
+            {errorMessage ? (
               <Alert aria-live="assertive" role="alert" severity="error">
-                Check the highlighted fields and try again.
+                {errorMessage}
               </Alert>
             ) : null}
             <TextField
               autoComplete="email"
-              error={Boolean(errors.email)}
+              disabled={isSubmitting}
+              error={Boolean(displayedErrors.email)}
               fullWidth
-              helperText={errors.email}
+              helperText={displayedErrors.email}
               id="applicant-email"
               inputRef={emailInput}
               label="Email address"
@@ -145,6 +207,7 @@ export function CreateAccountForm({
               onChange={(event) => {
                 setEmail(event.target.value)
                 setErrors((current) => ({ ...current, email: undefined }))
+                onEdit?.()
               }}
               required
               type="email"
@@ -152,9 +215,10 @@ export function CreateAccountForm({
             />
             <TextField
               autoComplete="new-password"
-              error={Boolean(errors.password)}
+              disabled={isSubmitting}
+              error={Boolean(displayedErrors.password)}
               fullWidth
-              helperText={errors.password ?? passwordGuidance}
+              helperText={displayedErrors.password ?? passwordGuidance}
               id="applicant-password"
               inputRef={passwordInput}
               label="Password"
@@ -166,6 +230,7 @@ export function CreateAccountForm({
                   password: undefined,
                   passwordConfirmation: undefined,
                 }))
+                onEdit?.()
               }}
               required
               type="password"
@@ -173,9 +238,10 @@ export function CreateAccountForm({
             />
             <TextField
               autoComplete="new-password"
-              error={Boolean(errors.passwordConfirmation)}
+              disabled={isSubmitting}
+              error={Boolean(displayedErrors.passwordConfirmation)}
               fullWidth
-              helperText={errors.passwordConfirmation}
+              helperText={displayedErrors.passwordConfirmation}
               id="applicant-password-confirmation"
               inputRef={passwordConfirmationInput}
               label="Confirm password"
@@ -186,6 +252,7 @@ export function CreateAccountForm({
                   ...current,
                   passwordConfirmation: undefined,
                 }))
+                onEdit?.()
               }}
               required
               type="password"
@@ -194,10 +261,11 @@ export function CreateAccountForm({
             <Button
               className={styles.submit}
               fullWidth
+              isDisabled={isSubmitting}
               size="large"
               type="submit"
             >
-              Create account
+              {isSubmitting ? 'Creating account…' : 'Create account'}
             </Button>
             <Typography
               className={styles.footer}
@@ -206,11 +274,11 @@ export function CreateAccountForm({
             >
               <span>Already have an account? </span>
               <Link
-                href={accountAccessHref('/sign-in', returnTo)}
+                href={signInHref}
                 onClick={(event) => {
                   if (onNavigate) {
                     event.preventDefault()
-                    onNavigate(accountAccessHref('/sign-in', returnTo))
+                    onNavigate(signInHref)
                   }
                 }}
               >
