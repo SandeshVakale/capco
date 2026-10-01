@@ -308,12 +308,12 @@ test.describe('Applicant save and resume', () => {
     await expect(
       page.getByRole('heading', { name: 'Application submitted' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'DONE' }).click()
     await expect(
-      page.getByRole('heading', { name: 'Start your KYC application' }),
+      page.getByText('You can safely close this window.'),
     ).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: 'Resume application' }),
-    ).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'DONE' })).toHaveCount(0)
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${applicationId}/submitted$`),
+    )
   })
 })

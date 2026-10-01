@@ -13,12 +13,20 @@ import type { Route } from './+types/$applicationId.submitted'
 export default function SubmissionReceiptPage({
   params,
 }: Route.ComponentProps) {
+  return <SubmissionReceipt applicationId={params.applicationId} />
+}
+
+export function SubmissionReceipt({
+  applicationId,
+}: {
+  applicationId: string
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   const navigationReceipt = receiptFromNavigationState(location.state)
   const receipt = useQuery({
-    queryKey: ['applicant-application-submission', params.applicationId],
-    queryFn: () => getApplicantSubmissionReceipt(params.applicationId),
+    queryKey: ['applicant-application-submission', applicationId],
+    queryFn: () => getApplicantSubmissionReceipt(applicationId),
     initialData: navigationReceipt,
     retry: false,
   })
@@ -71,12 +79,10 @@ export default function SubmissionReceiptPage({
         >
           {receipt.data.message}
         </Alert>
-        <Button
-          variant="quiet"
-          onClick={() => void navigate('/applications/current')}
-        >
-          DONE
-        </Button>
+        <Typography component="p" tone="muted">
+          You can safely close this window. Keep this page address if you want
+          to view your submission receipt again.
+        </Typography>
       </main>
     </div>
   )

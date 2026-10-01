@@ -50,11 +50,12 @@ function renderStep(step: string) {
     ],
     { initialEntries: [`/applications/${applicationId}/${step}`] },
   )
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+  return { ...result, queryClient }
 }
 
 function RoutedStep() {
@@ -443,7 +444,7 @@ describe('Applicant application step', () => {
       ),
     )
     const user = userEvent.setup()
-    renderStep('review')
+    const { queryClient } = renderStep('review')
 
     const submit = await screen.findByRole('button', {
       name: 'Submit application',
@@ -459,6 +460,9 @@ describe('Applicant application step', () => {
     expect(
       await screen.findByText('Submission receipt destination'),
     ).toBeInTheDocument()
+    expect(
+      queryClient.getQueryData(['applicant-application', 'current']),
+    ).toBeNull()
     expect(submittedDocument).toEqual({
       data: {
         type: 'applicant-applications',

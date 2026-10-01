@@ -560,13 +560,14 @@ function ReviewApplication({
   const submission = useMutation({
     mutationFn: () =>
       submitApplicantApplication({ applicationId, expectedFormVersion }),
-    onSuccess: (receipt) => {
+    onSuccess: async (receipt) => {
+      await queryClient.cancelQueries({
+        queryKey: ['applicant-application', 'current'],
+      })
       queryClient.removeQueries({
         queryKey: ['applicant-application-form', applicationId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ['applicant-application', 'current'],
-      })
+      queryClient.setQueryData(['applicant-application', 'current'], null)
       void navigate(`/applications/${applicationId}/submitted`, {
         replace: true,
         state: { receipt },
