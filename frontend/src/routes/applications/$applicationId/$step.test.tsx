@@ -102,9 +102,9 @@ describe('Applicant application step', () => {
     expect(
       screen.getByRole('combobox', { name: 'Country (required)' }),
     ).toHaveValue('United Kingdom')
-    expect(screen.getByLabelText('Nationality (required)')).toHaveValue(
-      'British',
-    )
+    expect(
+      screen.getByRole('combobox', { name: 'Nationality (required)' }),
+    ).toHaveValue('British')
     expect(screen.getByLabelText('Email (required)')).toHaveValue(
       'ada@example.test',
     )
@@ -232,7 +232,10 @@ describe('Applicant application step', () => {
       screen.getByRole('combobox', { name: 'Country (required)' }),
       'United Kingdom',
     )
-    await user.type(screen.getByLabelText('Nationality (required)'), 'British')
+    await user.type(
+      screen.getByRole('combobox', { name: 'Nationality (required)' }),
+      'British',
+    )
     await user.type(
       screen.getByLabelText('Email (required)'),
       'ada@example.test',

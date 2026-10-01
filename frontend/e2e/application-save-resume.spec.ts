@@ -64,7 +64,11 @@ async function fillPersonalDetails(page: Page, name: string): Promise<void> {
   await page
     .getByRole('combobox', { name: 'Country (required)' })
     .fill('France')
-  await page.getByLabel('Nationality (required)').fill('French')
+  await page.getByRole('option', { name: 'France', exact: true }).click()
+  await page
+    .getByRole('combobox', { name: 'Nationality (required)' })
+    .fill('French')
+  await page.getByRole('option', { name: 'French', exact: true }).click()
   await page.getByLabel('Email (required)').fill('applicant@example.test')
   await page.getByLabel('Phone (required)').fill('+33123456789')
   await page
@@ -159,9 +163,9 @@ test.describe('Applicant save and resume', () => {
     await expect(
       page.getByRole('combobox', { name: 'Country (required)' }),
     ).toHaveValue('France')
-    await expect(page.getByLabel('Nationality (required)')).toHaveValue(
-      'French',
-    )
+    await expect(
+      page.getByRole('combobox', { name: 'Nationality (required)' }),
+    ).toHaveValue('French')
     await expect(page.getByLabel('Email (required)')).toHaveValue(
       'applicant@example.test',
     )

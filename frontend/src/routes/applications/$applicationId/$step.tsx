@@ -25,7 +25,7 @@ import {
   validateApplicantFormStep,
   type ApplicantFormValidationErrors,
 } from '../-applicant-form-validation'
-import { countryOptions } from '../-countries'
+import { countryOptions, nationalityOptions } from '../-countries'
 import styles from '../../application-step.module.css'
 
 import type { ApplicantApplicationStep } from '../-applicant-application-api'
@@ -35,7 +35,7 @@ interface FieldDefinition {
   name: Exclude<ApplicantFormAnswerName, 'consentConfirmed'>
   label: string
   autoComplete?: string
-  countryPicker?: boolean
+  picker?: 'country' | 'nationality'
   type?: 'date' | 'email' | 'tel' | 'text'
 }
 
@@ -50,9 +50,9 @@ const fieldDefinitions: Record<
       name: 'country',
       label: 'Country',
       autoComplete: 'country-name',
-      countryPicker: true,
+      picker: 'country',
     },
-    { name: 'nationality', label: 'Nationality' },
+    { name: 'nationality', label: 'Nationality', picker: 'nationality' },
     { name: 'email', label: 'Email', type: 'email', autoComplete: 'email' },
     { name: 'phone', label: 'Phone', type: 'tel', autoComplete: 'tel' },
   ],
@@ -62,7 +62,7 @@ const fieldDefinitions: Record<
     {
       name: 'documentCountry',
       label: 'Document country',
-      countryPicker: true,
+      picker: 'country',
     },
     { name: 'expiry', label: 'Expiry', type: 'date' },
     { name: 'street', label: 'Street', autoComplete: 'street-address' },
@@ -72,7 +72,7 @@ const fieldDefinitions: Record<
       name: 'residentialCountry',
       label: 'Residential country',
       autoComplete: 'country-name',
-      countryPicker: true,
+      picker: 'country',
     },
   ],
 }
@@ -325,7 +325,7 @@ function ApplicantStepForm({
             spacing={2}
           >
             {fieldDefinitions[step].map((field) =>
-              field.countryPicker ? (
+              field.picker ? (
                 <ComboBoxField
                   disabled={save.isPending}
                   error={Boolean(validationErrors[field.name])}
@@ -344,7 +344,11 @@ function ApplicantStepForm({
                       [field.name]: value,
                     }))
                   }
-                  options={countryOptions}
+                  options={
+                    field.picker === 'country'
+                      ? countryOptions
+                      : nationalityOptions
+                  }
                   required
                   value={answers[field.name] ?? ''}
                 />
