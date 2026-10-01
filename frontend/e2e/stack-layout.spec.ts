@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 test('application form lays out actions without forwarding style props to the DOM', async ({
   page,
 }) => {
+  const applicationId = '00000000-0000-4000-8000-000000000123'
   const reactWarnings: string[] = []
   page.on('console', (message) => {
     if (
@@ -13,10 +14,35 @@ test('application form lays out actions without forwarding style props to the DO
     }
   })
 
-  await page.goto('/applications/prototype/personal-details')
+  await page.route(
+    `/api/v1/applicant-applications/${applicationId}/form`,
+    async (route) =>
+      route.fulfill({
+        contentType: 'application/vnd.api+json',
+        json: {
+          data: {
+            type: 'applicant-application-forms',
+            id: applicationId,
+            attributes: {
+              status: 'draft',
+              currentStep: 'personal-details',
+              steps: [
+                { step: 'personal-details', state: 'current' },
+                { step: 'identity-and-address', state: 'remaining' },
+              ],
+              answers: {},
+              documentEvidence: { present: false },
+              version: 0,
+            },
+          },
+        },
+      }),
+  )
+
+  await page.goto(`/applications/${applicationId}/personal-details`)
 
   const actions = page
-    .getByRole('button', { name: 'Continue' })
+    .getByRole('button', { name: 'Save and continue' })
     .locator('xpath=..')
   await expect(actions).toHaveCSS('justify-content', 'space-between')
   expect(reactWarnings).toEqual([])
