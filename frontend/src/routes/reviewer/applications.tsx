@@ -15,7 +15,6 @@ import {
   TextField,
   Typography,
 } from '@kyc/ui'
-import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { z } from 'zod'
 
@@ -434,15 +433,13 @@ export default function ReviewerApplicationsPage({
 }: Route.ComponentProps) {
   const navigate = useNavigate()
   const { q, status, page, response } = loaderData
-  const [searchValue, setSearchValue] = useState(q)
-  useEffect(() => setSearchValue(q), [q])
   const updateSearch = (next: {
     q?: string
     status?: ReviewerApplicationStatus
     page?: number
   }) => {
     const search = new URLSearchParams({
-      q: next.q !== undefined ? next.q : searchValue,
+      q: next.q !== undefined ? next.q : q,
       status: next.status ?? status,
       page: String(next.page ?? page),
     })
@@ -451,11 +448,10 @@ export default function ReviewerApplicationsPage({
   return (
     <ReviewerApplicationsView
       response={response}
-      q={searchValue}
+      q={q}
       status={status}
       page={page}
       onSearch={(value) => {
-        setSearchValue(value)
         updateSearch({ q: value, page: 0 })
       }}
       onStatus={(value) => updateSearch({ status: value, page: 0 })}
