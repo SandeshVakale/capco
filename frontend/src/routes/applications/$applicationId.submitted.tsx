@@ -1,11 +1,50 @@
 import { Alert, Button, Typography } from '@kyc/ui'
-import { useNavigate } from 'react-router'
+import { useQuery } from '@tanstack/react-query'
+import { useLocation, useNavigate } from 'react-router'
 
-export default function SubmissionReceiptPage() {
+import {
+  getApplicantSubmissionReceipt,
+  presentApplicantSubmissionError,
+  type ApplicantSubmissionReceipt,
+} from './-applicant-submission-api'
+
+import type { Route } from './+types/$applicationId.submitted'
+
+export default function SubmissionReceiptPage({
+  params,
+}: Route.ComponentProps) {
   const navigate = useNavigate()
-  const receipt = {
-    message: 'Your application was received',
-    nextStep: 'The review team will review your application.',
+  const location = useLocation()
+  const navigationReceipt = receiptFromNavigationState(location.state)
+  const receipt = useQuery({
+    queryKey: ['applicant-application-submission', params.applicationId],
+    queryFn: () => getApplicantSubmissionReceipt(params.applicationId),
+    initialData: navigationReceipt,
+    retry: false,
+  })
+
+  if (receipt.isPending) {
+    return (
+      <main className="submission-receipt__main">
+        <Typography aria-live="polite" role="status">
+          Confirming your submission…
+        </Typography>
+      </main>
+    )
+  }
+
+  if (receipt.isError) {
+    const error = presentApplicantSubmissionError(receipt.error)
+    return (
+      <main className="submission-receipt__main">
+        <Alert role="alert" severity="error">
+          {error.message}
+        </Alert>
+        <Button onClick={() => void navigate('/applications/current')}>
+          Return to your application
+        </Button>
+      </main>
+    )
   }
 
   return (
@@ -23,14 +62,14 @@ export default function SubmissionReceiptPage() {
           Application submitted
         </Typography>
         <Typography component="p" tone="muted">
-          {receipt.nextStep}
+          {receipt.data.nextStep}
         </Typography>
         <Alert
           role="status"
           severity="success"
           className="submission-receipt__alert"
         >
-          {receipt.message}
+          {receipt.data.message}
         </Alert>
         <Button
           variant="quiet"
@@ -41,4 +80,25 @@ export default function SubmissionReceiptPage() {
       </main>
     </div>
   )
+}
+
+function receiptFromNavigationState(
+  state: unknown,
+): ApplicantSubmissionReceipt | undefined {
+  if (
+    typeof state === 'object' &&
+    state !== null &&
+    'receipt' in state &&
+    typeof state.receipt === 'object' &&
+    state.receipt !== null &&
+    'message' in state.receipt &&
+    typeof state.receipt.message === 'string' &&
+    'nextStep' in state.receipt &&
+    typeof state.receipt.nextStep === 'string' &&
+    'submittedAt' in state.receipt &&
+    typeof state.receipt.submittedAt === 'string'
+  ) {
+    return state.receipt as ApplicantSubmissionReceipt
+  }
+  return undefined
 }

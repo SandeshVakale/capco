@@ -25,6 +25,10 @@ import {
   validateApplicantFormStep,
   type ApplicantFormValidationErrors,
 } from '../-applicant-form-validation'
+import {
+  presentApplicantSubmissionError,
+  submitApplicantApplication,
+} from '../-applicant-submission-api'
 import { countryOptions, nationalityOptions } from '../-countries'
 import styles from '../../application-step.module.css'
 
@@ -98,22 +102,16 @@ export function ApplicantApplicationStepRoute({
   const navigate = useNavigate()
   const location = useLocation()
   const step = parseStep(stepName)
+  const isReview = stepName === 'review'
   const form = useQuery({
     queryKey: ['applicant-application-form', applicationId],
     queryFn: () => getApplicantForm(applicationId),
     gcTime: 0,
     retry: false,
-    enabled: step !== null,
+    enabled: step !== null || isReview,
   })
 
-  if (stepName === 'review')
-    return (
-      <ReviewPrototype
-        applicationId={applicationId}
-        saved={hasSavedNavigationState(location.state)}
-      />
-    )
-  if (!step) {
+  if (!step && !isReview) {
     return (
       <main className={styles.page}>
         <Alert role="alert" severity="error">
@@ -152,6 +150,16 @@ export function ApplicantApplicationStepRoute({
       </main>
     )
   }
+  if (isReview) {
+    return (
+      <ReviewApplication
+        applicationId={applicationId}
+        expectedFormVersion={form.data.version}
+        saved={hasSavedNavigationState(location.state)}
+      />
+    )
+  }
+  if (!step) return null
 
   return (
     <ApplicantStepForm
@@ -448,14 +456,38 @@ function ApplicantStepForm({
   )
 }
 
-function ReviewPrototype({
+function ReviewApplication({
   applicationId,
+  expectedFormVersion,
   saved,
 }: {
   applicationId: string
+  expectedFormVersion: number
   saved: boolean
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [confirmed, setConfirmed] = useState(false)
+  const submission = useMutation({
+    mutationFn: () =>
+      submitApplicantApplication({ applicationId, expectedFormVersion }),
+    onSuccess: (receipt) => {
+      queryClient.removeQueries({
+        queryKey: ['applicant-application-form', applicationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['applicant-application', 'current'],
+      })
+      void navigate(`/applications/${applicationId}/submitted`, {
+        replace: true,
+        state: { receipt },
+      })
+    },
+  })
+  const submissionError = submission.isError
+    ? presentApplicantSubmissionError(submission.error)
+    : undefined
+
   return (
     <main className={styles.reviewPage}>
       <Box className={styles.reviewCard}>
@@ -469,18 +501,51 @@ function ReviewPrototype({
               Your progress was saved.
             </Alert>
           ) : null}
-          <label className={styles.checkboxField}>
-            <input type="checkbox" /> I confirm the information is complete and
-            accurate.
-          </label>
-          <Button
-            onClick={() =>
-              void navigate(`/applications/${applicationId}/submitted`)
-            }
+          {submissionError ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              {submissionError.message}
+            </Alert>
+          ) : null}
+          {submissionError?.authenticationRequired ? (
+            <Button
+              onClick={() =>
+                void navigate('/sign-in?returnTo=/applications/current')
+              }
+            >
+              Sign in
+            </Button>
+          ) : null}
+          <Stack
+            component="form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (confirmed && !submission.isPending) submission.mutate()
+            }}
+            spacing={2}
           >
-            Submit
-          </Button>
+            <label className={styles.checkboxField}>
+              <input
+                checked={confirmed}
+                disabled={submission.isPending}
+                onChange={(event) => {
+                  setConfirmed(event.target.checked)
+                  submission.reset()
+                }}
+                required
+                type="checkbox"
+              />{' '}
+              I confirm the information is complete and accurate.
+            </label>
+            <Button
+              disabled={!confirmed}
+              isPending={submission.isPending}
+              type="submit"
+            >
+              {submission.isPending ? 'Submitting…' : 'Submit application'}
+            </Button>
+          </Stack>
           <Button
+            disabled={submission.isPending}
             variant="secondary"
             onClick={() =>
               void navigate(
