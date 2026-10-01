@@ -12,7 +12,7 @@ describe('Applicant form validation', () => {
         'personal-details',
         {
           name: 'Ada Lovelace',
-          dateOfBirth: '1815-12-10',
+          dateOfBirth: '1990-12-10',
           country: 'United Kingdom',
           nationality: 'British',
           email: 'ada@example.test',
@@ -45,6 +45,27 @@ describe('Applicant form validation', () => {
       email: 'Enter a valid email address.',
       phone: 'Enter a valid phone number using at least 7 digits.',
       consentConfirmed: 'Confirm that these details are accurate.',
+    })
+  })
+
+  it('requires canonical countries and respects the earliest birth date', () => {
+    expect(
+      validateApplicantFormStep(
+        'personal-details',
+        {
+          name: 'Ada Lovelace',
+          dateOfBirth: '1899-12-31',
+          country: 'Atlantis',
+          nationality: 'British',
+          email: 'ada@example.test',
+          phone: '+442079460958',
+          consentConfirmed: true,
+        },
+        '2026-10-01',
+      ),
+    ).toMatchObject({
+      country: 'Choose a country from the list.',
+      dateOfBirth: 'Date of birth must be on or after 1 January 1900.',
     })
   })
 

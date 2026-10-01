@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { Button } from './Button'
+import { ComboBoxField } from './ComboBoxField'
 import {
   Alert,
   Box,
@@ -48,6 +49,10 @@ export const ButtonDisabled: Story = {
 export const Select: Story = {
   name: 'SelectField',
   render: () => <SelectStory />,
+}
+export const ComboBox: Story = {
+  name: 'ComboBoxField',
+  render: () => <ComboBoxStory />,
 }
 export const TextInput: Story = {
   name: 'TextField',
@@ -152,6 +157,27 @@ function SelectStory() {
         { value: 'in-review', label: 'In review' },
         { value: 'approved', label: 'Approved' },
       ]}
+    />
+  )
+}
+
+function ComboBoxStory() {
+  const [value, setValue] = useState('')
+  return (
+    <ComboBoxField
+      id="country"
+      label="Country"
+      onChange={setValue}
+      options={[
+        { value: 'France', label: 'France' },
+        {
+          value: 'United Kingdom',
+          label: 'United Kingdom',
+          textValue: 'United Kingdom UK Great Britain',
+        },
+        { value: 'United States', label: 'United States' },
+      ]}
+      value={value}
     />
   )
 }

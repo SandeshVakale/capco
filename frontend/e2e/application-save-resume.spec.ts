@@ -61,7 +61,9 @@ async function startApplication(page: Page): Promise<string> {
 async function fillPersonalDetails(page: Page, name: string): Promise<void> {
   await page.getByLabel('Name (required)').fill(name)
   await page.getByLabel('Date of birth (required)').fill('1990-06-15')
-  await page.getByLabel('Country (required)').fill('France')
+  await page
+    .getByRole('combobox', { name: 'Country (required)' })
+    .fill('France')
   await page.getByLabel('Nationality (required)').fill('French')
   await page.getByLabel('Email (required)').fill('applicant@example.test')
   await page.getByLabel('Phone (required)').fill('+33123456789')
@@ -154,7 +156,9 @@ test.describe('Applicant save and resume', () => {
     await expect(page.getByLabel('Date of birth (required)')).toHaveValue(
       '1990-06-15',
     )
-    await expect(page.getByLabel('Country (required)')).toHaveValue('France')
+    await expect(
+      page.getByRole('combobox', { name: 'Country (required)' }),
+    ).toHaveValue('France')
     await expect(page.getByLabel('Nationality (required)')).toHaveValue(
       'French',
     )

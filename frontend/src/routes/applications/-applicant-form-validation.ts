@@ -1,3 +1,5 @@
+import { isCountryName } from './-countries'
+
 import type { ApplicantApplicationStep } from './-applicant-application-api'
 import type {
   ApplicantFormAnswerName,
@@ -10,6 +12,11 @@ export type ApplicantFormValidationErrors = Partial<
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const phoneCharactersPattern = /^\+?[0-9 ().-]+$/
+const countryAnswerNames = [
+  'country',
+  'documentCountry',
+  'residentialCountry',
+] as const
 
 const maximumLengths: Partial<Record<ApplicantFormAnswerName, number>> = {
   name: 100,
@@ -95,6 +102,16 @@ export function validateApplicantFormStep(
     if (!emailPattern.test(email)) errors.email = 'Enter a valid email address.'
   }
 
+  for (const name of countryAnswerNames) {
+    if (
+      stepFields[step].includes(name) &&
+      !errors[name] &&
+      !isCountryName(normalized[name] ?? '')
+    ) {
+      errors[name] = 'Choose a country from the list.'
+    }
+  }
+
   if (!errors.phone && step === 'personal-details') {
     const phone = normalized.phone ?? ''
     const digitCount = phone.replace(/\D/g, '').length
@@ -107,6 +124,8 @@ export function validateApplicantFormStep(
     const dateOfBirth = normalized.dateOfBirth ?? ''
     if (!isIsoCalendarDate(dateOfBirth)) {
       errors.dateOfBirth = 'Enter a valid date of birth.'
+    } else if (dateOfBirth < '1900-01-01') {
+      errors.dateOfBirth = 'Date of birth must be on or after 1 January 1900.'
     } else if (dateOfBirth > today) {
       errors.dateOfBirth = 'Date of birth cannot be in the future.'
     }
