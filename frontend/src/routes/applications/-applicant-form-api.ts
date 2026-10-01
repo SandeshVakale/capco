@@ -41,10 +41,38 @@ export interface ApplicantForm {
 }
 
 export class ApplicantFormHttpError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly details: string[] = [],
+  ) {
     super('Applicant form request failed')
     this.name = 'ApplicantFormHttpError'
   }
+}
+
+const stepAnswerNames: Record<
+  ApplicantApplicationStep,
+  readonly ApplicantFormAnswerName[]
+> = {
+  'personal-details': [
+    'name',
+    'dateOfBirth',
+    'country',
+    'nationality',
+    'email',
+    'phone',
+    'consentConfirmed',
+  ],
+  'identity-and-address': [
+    'documentType',
+    'documentNumber',
+    'documentCountry',
+    'expiry',
+    'street',
+    'city',
+    'postal',
+    'residentialCountry',
+  ],
 }
 
 export class ApplicantFormContractError extends Error {
@@ -167,6 +195,167 @@ export async function getApplicantForm(
   } catch (error) {
     if (error instanceof ApplicantFormContractError) throw error
     throw new ApplicantFormContractError()
+  }
+}
+
+function csrfToken(): string | undefined {
+  if (typeof document === 'undefined') return undefined
+  return document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('XSRF-TOKEN='))
+    ?.slice('XSRF-TOKEN='.length)
+}
+
+async function readErrorDetails(response: Response): Promise<string[]> {
+  try {
+    const document = (await response.json()) as { errors?: unknown }
+    if (!Array.isArray(document.errors)) return []
+    return document.errors.flatMap((error) =>
+      typeof error === 'object' &&
+      error !== null &&
+      'detail' in error &&
+      typeof error.detail === 'string'
+        ? [error.detail]
+        : [],
+    )
+  } catch {
+    return []
+  }
+}
+
+function answersForStep(
+  step: ApplicantApplicationStep,
+  answers: ApplicantFormAnswers,
+): ApplicantFormAnswers {
+  return Object.fromEntries(
+    stepAnswerNames[step].map((name) => [
+      name,
+      name === 'consentConfirmed'
+        ? (answers.consentConfirmed ?? false)
+        : (answers[name] ?? ''),
+    ]),
+  ) as ApplicantFormAnswers
+}
+
+export async function saveApplicantForm({
+  applicationId,
+  step,
+  answers,
+  version,
+}: {
+  applicationId: string
+  step: ApplicantApplicationStep
+  answers: ApplicantFormAnswers
+  version: number
+}): Promise<ApplicantForm> {
+  if (
+    !uuidPattern.test(applicationId) ||
+    !Number.isInteger(version) ||
+    version < 0
+  ) {
+    throw new ApplicantFormContractError()
+  }
+  const token = csrfToken()
+  const response = await fetch(
+    `/api/v1/applicant-applications/${applicationId}/form`,
+    {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: {
+        Accept: jsonApiMediaType,
+        'Content-Type': jsonApiMediaType,
+        ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}),
+      },
+      body: JSON.stringify({
+        data: {
+          type: 'applicant-application-forms',
+          id: applicationId,
+          attributes: {
+            step,
+            answers: answersForStep(step, answers),
+            version,
+          },
+        },
+      }),
+    },
+  )
+  if (response.status !== 200) {
+    throw new ApplicantFormHttpError(
+      response.status,
+      await readErrorDetails(response),
+    )
+  }
+  try {
+    return parseForm(await response.json(), applicationId)
+  } catch (error) {
+    if (error instanceof ApplicantFormContractError) throw error
+    throw new ApplicantFormContractError()
+  }
+}
+
+export interface ApplicantFormSaveErrorPresentation {
+  authenticationRequired: boolean
+  conflict: boolean
+  message: string
+}
+
+export function presentApplicantFormSaveError(
+  error: unknown,
+): ApplicantFormSaveErrorPresentation {
+  if (error instanceof ApplicantFormHttpError && error.status === 401) {
+    return {
+      authenticationRequired: true,
+      conflict: false,
+      message: 'Your session has expired. Sign in again before saving.',
+    }
+  }
+  if (error instanceof ApplicantFormHttpError && error.status === 409) {
+    return {
+      authenticationRequired: false,
+      conflict: true,
+      message:
+        'This form changed in another session. Refresh its version, then save your edits again.',
+    }
+  }
+  if (
+    error instanceof ApplicantFormHttpError &&
+    (error.status === 400 || error.status === 422)
+  ) {
+    return {
+      authenticationRequired: false,
+      conflict: false,
+      message:
+        error.details[0] ??
+        'Some answers could not be saved. Check them and try again.',
+    }
+  }
+  if (error instanceof ApplicantFormHttpError && error.status === 404) {
+    return {
+      authenticationRequired: false,
+      conflict: false,
+      message: 'This application is no longer available.',
+    }
+  }
+  if (error instanceof ApplicantFormContractError) {
+    return {
+      authenticationRequired: false,
+      conflict: false,
+      message: 'The service returned an unexpected response. Try again.',
+    }
+  }
+  if (error instanceof ApplicantFormHttpError) {
+    return {
+      authenticationRequired: false,
+      conflict: false,
+      message: 'Your answers could not be saved. Try again.',
+    }
+  }
+  return {
+    authenticationRequired: false,
+    conflict: false,
+    message:
+      'We could not connect to the service. Your answers are still here; try again.',
   }
 }
 

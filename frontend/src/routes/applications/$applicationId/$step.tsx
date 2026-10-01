@@ -1,11 +1,13 @@
 import { Alert, Box, Button, Stack, TextField, Typography } from '@kyc/ui'
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 
 import {
   getApplicantForm,
   presentApplicantFormLoadError,
+  presentApplicantFormSaveError,
+  saveApplicantForm,
   type ApplicantForm,
   type ApplicantFormAnswerName,
   type ApplicantFormAnswers,
@@ -69,6 +71,7 @@ export function ApplicantApplicationStepRoute({
   stepName: string
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const step = parseStep(stepName)
   const form = useQuery({
     queryKey: ['applicant-application-form', applicationId],
@@ -79,7 +82,12 @@ export function ApplicantApplicationStepRoute({
   })
 
   if (stepName === 'review')
-    return <ReviewPrototype applicationId={applicationId} />
+    return (
+      <ReviewPrototype
+        applicationId={applicationId}
+        saved={hasSavedNavigationState(location.state)}
+      />
+    )
   if (!step) {
     return (
       <main className={styles.page}>
@@ -122,9 +130,10 @@ export function ApplicantApplicationStepRoute({
 
   return (
     <ApplicantStepForm
-      key={`${form.data.id}:${step}:${form.data.version}`}
+      key={`${form.data.id}:${step}`}
       applicationId={applicationId}
       form={form.data}
+      saved={hasSavedNavigationState(location.state)}
       step={step}
     />
   )
@@ -133,14 +142,64 @@ export function ApplicantApplicationStepRoute({
 function ApplicantStepForm({
   applicationId,
   form,
+  saved,
   step,
 }: {
   applicationId: string
   form: ApplicantForm
+  saved: boolean
   step: ApplicantApplicationStep
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [answers, setAnswers] = useState<ApplicantFormAnswers>(form.answers)
+  const [version, setVersion] = useState(form.version)
+  const submissionInFlight = useRef(false)
+  const save = useMutation({
+    mutationFn: () =>
+      saveApplicantForm({ applicationId, step, answers, version }),
+    onSuccess: (savedForm) => {
+      setVersion(savedForm.version)
+      queryClient.setQueryData(
+        ['applicant-application-form', applicationId],
+        savedForm,
+      )
+      void navigate(
+        step === 'personal-details'
+          ? `/applications/${applicationId}/identity-and-address`
+          : `/applications/${applicationId}/review`,
+        { state: { saved: true } },
+      )
+    },
+    onSettled: () => {
+      submissionInFlight.current = false
+    },
+  })
+  const refreshVersion = useMutation({
+    mutationFn: () => getApplicantForm(applicationId),
+    onSuccess: (latestForm) => {
+      setVersion(latestForm.version)
+      queryClient.setQueryData(
+        ['applicant-application-form', applicationId],
+        latestForm,
+      )
+      save.reset()
+    },
+  })
+  const saveError = save.isError
+    ? presentApplicantFormSaveError(save.error)
+    : undefined
+  const refreshError = refreshVersion.isError
+    ? presentApplicantFormLoadError(refreshVersion.error)
+    : undefined
+
+  function editAnswers(
+    update: (current: ApplicantFormAnswers) => ApplicantFormAnswers,
+  ) {
+    setAnswers(update)
+    save.reset()
+  }
+
   return (
     <main className={styles.page}>
       <Box component="div" className={styles.stepContent}>
@@ -156,29 +215,63 @@ function ApplicantStepForm({
           <Typography tone="muted">
             Your saved answers are loaded from your application.
           </Typography>
+          {saved ? (
+            <Alert aria-live="polite" role="status" severity="success">
+              Your progress was saved.
+            </Alert>
+          ) : null}
+          {saveError ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              {saveError.message}
+            </Alert>
+          ) : null}
+          {refreshError ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              {refreshError.message}
+            </Alert>
+          ) : null}
+          {saveError?.authenticationRequired ? (
+            <Button
+              onClick={() =>
+                void navigate('/sign-in?returnTo=/applications/current')
+              }
+            >
+              Sign in
+            </Button>
+          ) : null}
+          {saveError?.conflict ? (
+            <Button
+              isPending={refreshVersion.isPending}
+              onClick={() => refreshVersion.mutate()}
+              variant="secondary"
+            >
+              {refreshVersion.isPending
+                ? 'Refreshing version…'
+                : 'Refresh form version'}
+            </Button>
+          ) : null}
           <Stack
             component="form"
             className={styles.stepForm}
             onSubmit={(event) => {
               event.preventDefault()
               if (!event.currentTarget.reportValidity()) return
-              void navigate(
-                step === 'personal-details'
-                  ? `/applications/${applicationId}/identity-and-address`
-                  : `/applications/${applicationId}/review`,
-              )
+              if (submissionInFlight.current) return
+              submissionInFlight.current = true
+              save.mutate()
             }}
             spacing={2}
           >
             {fieldDefinitions[step].map((field) => (
               <TextField
                 autoComplete={field.autoComplete}
+                disabled={save.isPending}
                 fullWidth
                 key={field.name}
                 label={`${field.label} (required)`}
                 name={field.name}
                 onChange={(event) =>
-                  setAnswers((current) => ({
+                  editAnswers((current) => ({
                     ...current,
                     [field.name]: event.target.value,
                   }))
@@ -192,9 +285,10 @@ function ApplicantStepForm({
               <label className={styles.checkboxField}>
                 <input
                   checked={answers.consentConfirmed ?? false}
+                  disabled={save.isPending}
                   name="consentConfirmed"
                   onChange={(event) =>
-                    setAnswers((current) => ({
+                    editAnswers((current) => ({
                       ...current,
                       consentConfirmed: event.target.checked,
                     }))
@@ -205,24 +299,11 @@ function ApplicantStepForm({
                 I confirm these details are accurate and belong to me.
               </label>
             ) : (
-              <>
-                <label htmlFor="document-evidence">
-                  Document evidence{' '}
-                  {form.documentEvidencePresent ? '(uploaded)' : '(required)'}
-                </label>
-                {form.documentEvidencePresent ? (
-                  <Typography role="status" tone="muted">
-                    Document evidence already uploaded.
-                  </Typography>
-                ) : null}
-                <input
-                  id="document-evidence"
-                  name="documentEvidence"
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  required={!form.documentEvidencePresent}
-                />
-              </>
+              <Typography role="status" tone="muted">
+                {form.documentEvidencePresent
+                  ? 'Document evidence already uploaded.'
+                  : 'No document evidence is stored yet.'}
+              </Typography>
             )}
             <Stack
               component="div"
@@ -243,8 +324,8 @@ function ApplicantStepForm({
               >
                 Back
               </Button>
-              <Button type="submit">
-                {step === 'personal-details' ? 'Continue' : 'Save and review'}
+              <Button isPending={save.isPending} type="submit">
+                {saveButtonLabel(step, save.isPending)}
               </Button>
             </Stack>
           </Stack>
@@ -254,7 +335,13 @@ function ApplicantStepForm({
   )
 }
 
-function ReviewPrototype({ applicationId }: { applicationId: string }) {
+function ReviewPrototype({
+  applicationId,
+  saved,
+}: {
+  applicationId: string
+  saved: boolean
+}) {
   const navigate = useNavigate()
   return (
     <main className={styles.reviewPage}>
@@ -264,6 +351,11 @@ function ReviewPrototype({ applicationId }: { applicationId: string }) {
             Review application
           </Typography>
           <Typography>Your application is ready for review.</Typography>
+          {saved ? (
+            <Alert aria-live="polite" role="status" severity="success">
+              Your progress was saved.
+            </Alert>
+          ) : null}
           <label className={styles.checkboxField}>
             <input type="checkbox" /> I confirm the information is complete and
             accurate.
@@ -295,4 +387,21 @@ function parseStep(value: string): ApplicantApplicationStep | null {
   return value === 'personal-details' || value === 'identity-and-address'
     ? value
     : null
+}
+
+function hasSavedNavigationState(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'saved' in state &&
+    state.saved === true
+  )
+}
+
+function saveButtonLabel(
+  step: ApplicantApplicationStep,
+  isPending: boolean,
+): string {
+  if (isPending) return 'Saving…'
+  return step === 'personal-details' ? 'Save and continue' : 'Save and review'
 }

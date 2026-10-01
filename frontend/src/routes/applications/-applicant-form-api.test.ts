@@ -1,11 +1,13 @@
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { server } from '../../test/server'
 
 import {
   getApplicantForm,
   presentApplicantFormLoadError,
+  presentApplicantFormSaveError,
+  saveApplicantForm,
 } from './-applicant-form-api'
 
 const applicationId = '00000000-0000-4000-8000-000000000123'
@@ -32,6 +34,10 @@ const formDocument = {
     },
   },
 }
+
+afterEach(() => {
+  document.cookie = 'XSRF-TOKEN=; Max-Age=0; Path=/'
+})
 
 describe('Applicant form API', () => {
   it('loads all persisted form state through the authenticated JSON:API contract', async () => {
@@ -150,5 +156,130 @@ describe('Applicant form API', () => {
       (cause: unknown) => cause,
     )
     expect(presentApplicantFormLoadError(error)).toEqual(example.expected)
+  })
+
+  it('saves only the selected step with the current version and CSRF token', async () => {
+    document.cookie = 'XSRF-TOKEN=csrf%20token; Path=/'
+    let capturedRequest: Request | undefined
+    server.use(
+      http.patch(
+        `/api/v1/applicant-applications/${applicationId}/form`,
+        ({ request }) => {
+          capturedRequest = request
+          return HttpResponse.json({
+            ...formDocument,
+            data: {
+              ...formDocument.data,
+              attributes: { ...formDocument.data.attributes, version: 4 },
+            },
+          })
+        },
+      ),
+    )
+
+    await expect(
+      saveApplicantForm({
+        applicationId,
+        step: 'personal-details',
+        version: 3,
+        answers: {
+          name: 'Ada Lovelace',
+          dateOfBirth: '1815-12-10',
+          country: 'United Kingdom',
+          nationality: 'British',
+          email: 'ada@example.test',
+          phone: '+44 20 0000 0000',
+          consentConfirmed: true,
+          documentNumber: 'must-not-cross-step-boundary',
+        },
+      }),
+    ).resolves.toMatchObject({ version: 4 })
+
+    expect(capturedRequest?.method).toBe('PATCH')
+    expect(capturedRequest?.credentials).toBe('same-origin')
+    expect(capturedRequest?.headers.get('Accept')).toBe(
+      'application/vnd.api+json',
+    )
+    expect(capturedRequest?.headers.get('Content-Type')).toBe(
+      'application/vnd.api+json',
+    )
+    expect(capturedRequest?.headers.get('X-XSRF-TOKEN')).toBe('csrf token')
+    await expect(capturedRequest?.json()).resolves.toEqual({
+      data: {
+        type: 'applicant-application-forms',
+        id: applicationId,
+        attributes: {
+          step: 'personal-details',
+          answers: {
+            name: 'Ada Lovelace',
+            dateOfBirth: '1815-12-10',
+            country: 'United Kingdom',
+            nationality: 'British',
+            email: 'ada@example.test',
+            phone: '+44 20 0000 0000',
+            consentConfirmed: true,
+          },
+          version: 3,
+        },
+      },
+    })
+  })
+
+  it.each([
+    {
+      status: 401,
+      body: undefined,
+      expected: {
+        authenticationRequired: true,
+        conflict: false,
+        message: 'Your session has expired. Sign in again before saving.',
+      },
+    },
+    {
+      status: 409,
+      body: undefined,
+      expected: {
+        authenticationRequired: false,
+        conflict: true,
+        message:
+          'This form changed in another session. Refresh its version, then save your edits again.',
+      },
+    },
+    {
+      status: 422,
+      body: { errors: [{ detail: 'Enter a valid date of birth.' }] },
+      expected: {
+        authenticationRequired: false,
+        conflict: false,
+        message: 'Enter a valid date of birth.',
+      },
+    },
+  ])('maps a save $status without losing safe API detail', async (example) => {
+    server.use(
+      http.patch(`/api/v1/applicant-applications/${applicationId}/form`, () =>
+        example.body
+          ? HttpResponse.json(example.body, { status: example.status })
+          : new HttpResponse(null, { status: example.status }),
+      ),
+    )
+    const error = await saveApplicantForm({
+      applicationId,
+      step: 'personal-details',
+      answers: {},
+      version: 3,
+    }).catch((cause: unknown) => cause)
+
+    expect(presentApplicantFormSaveError(error)).toEqual(example.expected)
+  })
+
+  it('makes clear that network failures did not discard entered answers', () => {
+    expect(
+      presentApplicantFormSaveError(new TypeError('Failed to fetch')),
+    ).toEqual({
+      authenticationRequired: false,
+      conflict: false,
+      message:
+        'We could not connect to the service. Your answers are still here; try again.',
+    })
   })
 })
