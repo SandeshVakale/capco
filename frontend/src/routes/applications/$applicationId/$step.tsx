@@ -13,9 +13,11 @@ import { useLocation, useNavigate } from 'react-router'
 
 import {
   getApplicantForm,
+  presentApplicantDocumentEvidenceError,
   presentApplicantFormLoadError,
   presentApplicantFormSaveError,
   saveApplicantForm,
+  uploadApplicantDocumentEvidence,
   type ApplicantForm,
   type ApplicantFormAnswerName,
   type ApplicantFormAnswers,
@@ -25,6 +27,10 @@ import {
   validateApplicantFormStep,
   type ApplicantFormValidationErrors,
 } from '../-applicant-form-validation'
+import {
+  presentApplicantSubmissionError,
+  submitApplicantApplication,
+} from '../-applicant-submission-api'
 import { countryOptions, nationalityOptions } from '../-countries'
 import styles from '../../application-step.module.css'
 
@@ -98,22 +104,16 @@ export function ApplicantApplicationStepRoute({
   const navigate = useNavigate()
   const location = useLocation()
   const step = parseStep(stepName)
+  const isReview = stepName === 'review'
   const form = useQuery({
     queryKey: ['applicant-application-form', applicationId],
     queryFn: () => getApplicantForm(applicationId),
     gcTime: 0,
     retry: false,
-    enabled: step !== null,
+    enabled: step !== null || isReview,
   })
 
-  if (stepName === 'review')
-    return (
-      <ReviewPrototype
-        applicationId={applicationId}
-        saved={hasSavedNavigationState(location.state)}
-      />
-    )
-  if (!step) {
+  if (!step && !isReview) {
     return (
       <main className={styles.page}>
         <Alert role="alert" severity="error">
@@ -152,6 +152,16 @@ export function ApplicantApplicationStepRoute({
       </main>
     )
   }
+  if (isReview) {
+    return (
+      <ReviewApplication
+        applicationId={applicationId}
+        expectedFormVersion={form.data.version}
+        saved={hasSavedNavigationState(location.state)}
+      />
+    )
+  }
+  if (!step) return null
 
   return (
     <ApplicantStepForm
@@ -181,7 +191,14 @@ function ApplicantStepForm({
   const [validationErrors, setValidationErrors] =
     useState<ApplicantFormValidationErrors>({})
   const [version, setVersion] = useState(form.version)
+  const [documentEvidencePresent, setDocumentEvidencePresent] = useState(
+    form.documentEvidencePresent,
+  )
+  const [documentEvidenceFile, setDocumentEvidenceFile] = useState<File>()
+  const [documentEvidenceRequiredError, setDocumentEvidenceRequiredError] =
+    useState(false)
   const submissionInFlight = useRef(false)
+  const documentInputRef = useRef<HTMLInputElement>(null)
   const inputRefs = useRef<
     Partial<Record<ApplicantFormAnswerName, HTMLInputElement | null>>
   >({})
@@ -221,6 +238,22 @@ function ApplicantStepForm({
       save.reset()
     },
   })
+  const uploadDocument = useMutation({
+    mutationFn: async (file: File) => {
+      await uploadApplicantDocumentEvidence({ applicationId, file })
+      return getApplicantForm(applicationId)
+    },
+    onSuccess: (latestForm) => {
+      setVersion(latestForm.version)
+      setDocumentEvidencePresent(true)
+      setDocumentEvidenceFile(undefined)
+      setDocumentEvidenceRequiredError(false)
+      queryClient.setQueryData(
+        ['applicant-application-form', applicationId],
+        latestForm,
+      )
+    },
+  })
   const saveError = save.isError
     ? presentApplicantFormSaveError(save.error)
     : undefined
@@ -251,6 +284,11 @@ function ApplicantStepForm({
       ]
       const firstInvalidField = focusOrder.find((name) => errors[name])
       if (firstInvalidField) inputRefs.current[firstInvalidField]?.focus()
+      return
+    }
+    if (step === 'identity-and-address' && !documentEvidencePresent) {
+      setDocumentEvidenceRequiredError(true)
+      documentInputRef.current?.focus()
       return
     }
     if (submissionInFlight.current) return
@@ -412,11 +450,66 @@ function ApplicantStepForm({
                 ) : null}
               </>
             ) : (
-              <Typography role="status" tone="muted">
-                {form.documentEvidencePresent
-                  ? 'Document evidence already uploaded.'
-                  : 'No document evidence is stored yet.'}
-              </Typography>
+              <Stack spacing={1}>
+                <Typography role="status" tone="muted">
+                  {documentEvidencePresent
+                    ? 'Document evidence uploaded.'
+                    : 'Upload a JPG or PNG identity document (maximum 10 MiB).'}
+                </Typography>
+                {uploadDocument.isError ? (
+                  <Alert role="alert" severity="error">
+                    {presentApplicantDocumentEvidenceError(
+                      uploadDocument.error,
+                    )}
+                  </Alert>
+                ) : null}
+                {documentEvidenceRequiredError ? (
+                  <Typography id="document-evidence-error" role="alert">
+                    Upload document evidence before continuing.
+                  </Typography>
+                ) : null}
+                <label htmlFor="application-document-evidence">
+                  Identity document{' '}
+                  {documentEvidencePresent
+                    ? '(optional replacement)'
+                    : '(required)'}
+                </label>
+                <input
+                  accept="image/jpeg,image/png"
+                  aria-describedby={
+                    documentEvidenceRequiredError
+                      ? 'document-evidence-error'
+                      : undefined
+                  }
+                  aria-invalid={documentEvidenceRequiredError}
+                  disabled={save.isPending || uploadDocument.isPending}
+                  id="application-document-evidence"
+                  onChange={(event) => {
+                    setDocumentEvidenceFile(event.target.files?.[0])
+                    setDocumentEvidenceRequiredError(false)
+                    uploadDocument.reset()
+                  }}
+                  ref={documentInputRef}
+                  required={!documentEvidencePresent}
+                  type="file"
+                />
+                <Button
+                  disabled={!documentEvidenceFile || save.isPending}
+                  isPending={uploadDocument.isPending}
+                  onClick={() => {
+                    if (documentEvidenceFile) {
+                      uploadDocument.mutate(documentEvidenceFile)
+                    }
+                  }}
+                  type="button"
+                  variant="secondary"
+                >
+                  {documentUploadButtonLabel(
+                    uploadDocument.isPending,
+                    documentEvidencePresent,
+                  )}
+                </Button>
+              </Stack>
             )}
             <Stack
               component="div"
@@ -437,7 +530,11 @@ function ApplicantStepForm({
               >
                 Back
               </Button>
-              <Button isPending={save.isPending} type="submit">
+              <Button
+                disabled={uploadDocument.isPending}
+                isPending={save.isPending}
+                type="submit"
+              >
                 {saveButtonLabel(step, save.isPending)}
               </Button>
             </Stack>
@@ -448,14 +545,39 @@ function ApplicantStepForm({
   )
 }
 
-function ReviewPrototype({
+function ReviewApplication({
   applicationId,
+  expectedFormVersion,
   saved,
 }: {
   applicationId: string
+  expectedFormVersion: number
   saved: boolean
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [confirmed, setConfirmed] = useState(false)
+  const submission = useMutation({
+    mutationFn: () =>
+      submitApplicantApplication({ applicationId, expectedFormVersion }),
+    onSuccess: async (receipt) => {
+      await queryClient.cancelQueries({
+        queryKey: ['applicant-application', 'current'],
+      })
+      queryClient.removeQueries({
+        queryKey: ['applicant-application-form', applicationId],
+      })
+      queryClient.setQueryData(['applicant-application', 'current'], null)
+      void navigate(`/applications/${applicationId}/submitted`, {
+        replace: true,
+        state: { receipt },
+      })
+    },
+  })
+  const submissionError = submission.isError
+    ? presentApplicantSubmissionError(submission.error)
+    : undefined
+
   return (
     <main className={styles.reviewPage}>
       <Box className={styles.reviewCard}>
@@ -469,18 +591,51 @@ function ReviewPrototype({
               Your progress was saved.
             </Alert>
           ) : null}
-          <label className={styles.checkboxField}>
-            <input type="checkbox" /> I confirm the information is complete and
-            accurate.
-          </label>
-          <Button
-            onClick={() =>
-              void navigate(`/applications/${applicationId}/submitted`)
-            }
+          {submissionError ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              {submissionError.message}
+            </Alert>
+          ) : null}
+          {submissionError?.authenticationRequired ? (
+            <Button
+              onClick={() =>
+                void navigate('/sign-in?returnTo=/applications/current')
+              }
+            >
+              Sign in
+            </Button>
+          ) : null}
+          <Stack
+            component="form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (confirmed && !submission.isPending) submission.mutate()
+            }}
+            spacing={2}
           >
-            Submit
-          </Button>
+            <label className={styles.checkboxField}>
+              <input
+                checked={confirmed}
+                disabled={submission.isPending}
+                onChange={(event) => {
+                  setConfirmed(event.target.checked)
+                  submission.reset()
+                }}
+                required
+                type="checkbox"
+              />{' '}
+              I confirm the information is complete and accurate.
+            </label>
+            <Button
+              disabled={!confirmed}
+              isPending={submission.isPending}
+              type="submit"
+            >
+              {submission.isPending ? 'Submitting…' : 'Submit application'}
+            </Button>
+          </Stack>
           <Button
+            disabled={submission.isPending}
             variant="secondary"
             onClick={() =>
               void navigate(
@@ -517,6 +672,14 @@ function saveButtonLabel(
 ): string {
   if (isPending) return 'Saving…'
   return step === 'personal-details' ? 'Save and continue' : 'Save and review'
+}
+
+function documentUploadButtonLabel(
+  isPending: boolean,
+  evidencePresent: boolean,
+): string {
+  if (isPending) return 'Uploading document…'
+  return evidencePresent ? 'Replace document' : 'Upload document'
 }
 
 function localIsoDate(): string {

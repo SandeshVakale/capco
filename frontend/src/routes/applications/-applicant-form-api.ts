@@ -82,6 +82,13 @@ export class ApplicantFormContractError extends Error {
   }
 }
 
+export class ApplicantDocumentEvidenceValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ApplicantDocumentEvidenceValidationError'
+  }
+}
+
 function isStep(value: unknown): value is ApplicantApplicationStep {
   return value === 'personal-details' || value === 'identity-and-address'
 }
@@ -292,6 +299,90 @@ export async function saveApplicantForm({
     if (error instanceof ApplicantFormContractError) throw error
     throw new ApplicantFormContractError()
   }
+}
+
+export async function uploadApplicantDocumentEvidence({
+  applicationId,
+  file,
+}: {
+  applicationId: string
+  file: File
+}): Promise<void> {
+  if (!uuidPattern.test(applicationId)) throw new ApplicantFormContractError()
+  if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+    throw new ApplicantDocumentEvidenceValidationError(
+      'Choose a JPG or PNG identity document.',
+    )
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    throw new ApplicantDocumentEvidenceValidationError(
+      'Choose an identity document smaller than 10 MiB.',
+    )
+  }
+  const token = csrfToken()
+  const body = new FormData()
+  body.append('file', file)
+  const response = await fetch(
+    `/api/v1/applicant-applications/${applicationId}/document-evidence`,
+    {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: jsonApiMediaType,
+        ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}),
+      },
+      body,
+    },
+  )
+  if (response.status !== 201) {
+    throw new ApplicantFormHttpError(
+      response.status,
+      await readErrorDetails(response),
+    )
+  }
+  try {
+    const document = (await response.json()) as {
+      data?: {
+        type?: unknown
+        id?: unknown
+        attributes?: { present?: unknown }
+      }
+    }
+    if (
+      document.data?.type !== 'applicant-application-document-evidence' ||
+      document.data.id !== applicationId ||
+      document.data.attributes?.present !== true
+    ) {
+      throw new ApplicantFormContractError()
+    }
+  } catch (error) {
+    if (error instanceof ApplicantFormContractError) throw error
+    throw new ApplicantFormContractError()
+  }
+}
+
+export function presentApplicantDocumentEvidenceError(error: unknown): string {
+  if (error instanceof ApplicantDocumentEvidenceValidationError) {
+    return error.message
+  }
+  if (error instanceof ApplicantFormHttpError && error.status === 401) {
+    return 'Your session has expired. Sign in again before uploading.'
+  }
+  if (
+    error instanceof ApplicantFormHttpError &&
+    (error.status === 415 || error.status === 422)
+  ) {
+    return (
+      error.details[0] ?? 'The document could not be accepted. Choose another.'
+    )
+  }
+  if (error instanceof ApplicantFormContractError) {
+    return 'The service returned an unexpected response. Try again.'
+  }
+  if (error instanceof ApplicantFormHttpError) {
+    return 'Your document could not be uploaded. Try again.'
+  }
+  return 'We could not connect to the service. Try again.'
 }
 
 export interface ApplicantFormSaveErrorPresentation {

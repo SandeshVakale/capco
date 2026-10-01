@@ -78,6 +78,38 @@ async function fillPersonalDetails(page: Page, name: string): Promise<void> {
     .check()
 }
 
+async function fillIdentityAndAddress(page: Page): Promise<void> {
+  await page.getByLabel('Document type (required)').fill('Passport')
+  await page.getByLabel('Document number (required)').fill('AB123456')
+  await page
+    .getByRole('combobox', { name: 'Document country (required)' })
+    .fill('France')
+  await page.getByRole('option', { name: 'France', exact: true }).click()
+  await page.getByLabel('Expiry (required)').fill('2030-12-31')
+  await page.getByLabel('Street (required)').fill('1 Rue de Rivoli')
+  await page.getByLabel('City (required)').fill('Paris')
+  await page.getByLabel('Postal code (required)').fill('75001')
+  await page
+    .getByRole('combobox', { name: 'Residential country (required)' })
+    .fill('France')
+  await expect(
+    page.getByRole('combobox', { name: 'Residential country (required)' }),
+  ).toHaveValue('France')
+}
+
+async function uploadDocumentEvidence(page: Page): Promise<void> {
+  await page.getByLabel('Identity document (required)').setInputFiles({
+    name: 'id.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  })
+  await page.getByRole('button', { name: 'Upload document' }).click()
+  await expect(page.getByText('Document evidence uploaded.')).toBeVisible()
+}
+
 async function signOutThroughApi(page: Page): Promise<void> {
   const status = await page.evaluate(async () => {
     const token = document.cookie
@@ -220,5 +252,68 @@ test.describe('Applicant save and resume', () => {
     ).toBeVisible()
     await expect(page.getByText('Your progress was saved.')).toBeVisible()
     expect(patchAttempts).toBe(2)
+  })
+
+  test('submits a complete application and does not offer it for resume', async ({
+    page,
+    request,
+  }) => {
+    const email = 'submission-e2e@example.test'
+    await seedApplicant(request, email)
+    await signIn(page, email)
+    const applicationId = await startApplication(page)
+
+    await fillPersonalDetails(page, 'Submission Applicant')
+    await page.getByRole('button', { name: 'Save and continue' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Identity and address' }),
+    ).toBeVisible()
+
+    await fillIdentityAndAddress(page)
+    await uploadDocumentEvidence(page)
+    await page.getByRole('button', { name: 'Save and review' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Review application' }),
+    ).toBeVisible()
+
+    await page
+      .getByRole('checkbox', {
+        name: 'I confirm the information is complete and accurate.',
+      })
+      .check()
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .endsWith(`/api/v1/applicant-applications/${applicationId}`) &&
+        response.request().method() === 'PATCH',
+    )
+    await page.getByRole('button', { name: 'Submit application' }).click()
+    const response = await responsePromise
+
+    expect(response.status()).toBe(200)
+    expect(response.request().postDataJSON()).toMatchObject({
+      data: {
+        type: 'applicant-applications',
+        id: applicationId,
+        attributes: { status: 'submitted', confirmed: true },
+      },
+    })
+    await expect(
+      page.getByRole('heading', { name: 'Application submitted' }),
+    ).toBeVisible()
+    await expect(page.getByText('Your application was received')).toBeVisible()
+
+    await page.reload()
+    await expect(
+      page.getByRole('heading', { name: 'Application submitted' }),
+    ).toBeVisible()
+    await expect(
+      page.getByText('You can safely close this window.'),
+    ).toBeVisible()
+    await expect(page.getByRole('button', { name: 'DONE' })).toHaveCount(0)
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${applicationId}/submitted$`),
+    )
   })
 })
