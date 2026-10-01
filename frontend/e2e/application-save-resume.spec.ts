@@ -97,36 +97,17 @@ async function fillIdentityAndAddress(page: Page): Promise<void> {
   ).toHaveValue('France')
 }
 
-async function uploadDocumentEvidence(
-  page: Page,
-  applicationId: string,
-): Promise<void> {
-  const status = await page.evaluate(async (id) => {
-    const token = document.cookie
-      .split(';')
-      .map((part) => part.trim())
-      .find((part) => part.startsWith('XSRF-TOKEN='))
-      ?.slice('XSRF-TOKEN='.length)
-    const bytes = Uint8Array.from(
-      atob(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-      ),
-      (character) => character.charCodeAt(0),
-    )
-    const data = new FormData()
-    data.append('file', new Blob([bytes], { type: 'image/png' }), 'id.png')
-    const response = await fetch(
-      `/api/v1/applicant-applications/${id}/document-evidence`,
-      {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {},
-        body: data,
-      },
-    )
-    return response.status
-  }, applicationId)
-  expect(status).toBe(201)
+async function uploadDocumentEvidence(page: Page): Promise<void> {
+  await page.getByLabel('Identity document (required)').setInputFiles({
+    name: 'id.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  })
+  await page.getByRole('button', { name: 'Upload document' }).click()
+  await expect(page.getByText('Document evidence uploaded.')).toBeVisible()
 }
 
 async function signOutThroughApi(page: Page): Promise<void> {
@@ -289,13 +270,12 @@ test.describe('Applicant save and resume', () => {
     ).toBeVisible()
 
     await fillIdentityAndAddress(page)
+    await uploadDocumentEvidence(page)
     await page.getByRole('button', { name: 'Save and review' }).click()
     await expect(
       page.getByRole('heading', { name: 'Review application' }),
     ).toBeVisible()
 
-    await uploadDocumentEvidence(page, applicationId)
-    await page.reload()
     await page
       .getByRole('checkbox', {
         name: 'I confirm the information is complete and accurate.',

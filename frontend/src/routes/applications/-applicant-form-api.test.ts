@@ -1,3 +1,5 @@
+import { File as NodeFile } from 'node:buffer'
+
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -8,6 +10,7 @@ import {
   presentApplicantFormLoadError,
   presentApplicantFormSaveError,
   saveApplicantForm,
+  uploadApplicantDocumentEvidence,
 } from './-applicant-form-api'
 
 const applicationId = '00000000-0000-4000-8000-000000000123'
@@ -281,5 +284,58 @@ describe('Applicant form API', () => {
       message:
         'We could not connect to the service. Your answers are still here; try again.',
     })
+  })
+
+  it('uploads JPG or PNG evidence through authenticated multipart data', async () => {
+    document.cookie = 'XSRF-TOKEN=csrf%20token; Path=/'
+    let capturedRequest: Request | undefined
+    server.use(
+      http.post(
+        `/api/v1/applicant-applications/${applicationId}/document-evidence`,
+        ({ request }) => {
+          capturedRequest = request
+          return HttpResponse.json(
+            {
+              data: {
+                type: 'applicant-application-document-evidence',
+                id: applicationId,
+                attributes: { present: true },
+              },
+            },
+            { status: 201 },
+          )
+        },
+      ),
+    )
+    const file = new NodeFile(['identity'], 'identity.png', {
+      type: 'image/png',
+    }) as unknown as File
+
+    await expect(
+      uploadApplicantDocumentEvidence({ applicationId, file }),
+    ).resolves.toBeUndefined()
+
+    expect(capturedRequest?.method).toBe('POST')
+    expect(capturedRequest?.credentials).toBe('same-origin')
+    expect(capturedRequest?.headers.get('Accept')).toBe(
+      'application/vnd.api+json',
+    )
+    expect(capturedRequest?.headers.get('Content-Type')).toContain(
+      'multipart/form-data; boundary=',
+    )
+    expect(capturedRequest?.headers.get('X-XSRF-TOKEN')).toBe('csrf token')
+    const body = await capturedRequest?.formData()
+    expect(String(body?.get('file'))).toBe('[object File]')
+  })
+
+  it('rejects unsupported evidence before making a request', async () => {
+    await expect(
+      uploadApplicantDocumentEvidence({
+        applicationId,
+        file: new File(['pdf'], 'identity.pdf', {
+          type: 'application/pdf',
+        }),
+      }),
+    ).rejects.toThrow('Choose a JPG or PNG identity document.')
   })
 })

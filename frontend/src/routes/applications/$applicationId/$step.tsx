@@ -13,9 +13,11 @@ import { useLocation, useNavigate } from 'react-router'
 
 import {
   getApplicantForm,
+  presentApplicantDocumentEvidenceError,
   presentApplicantFormLoadError,
   presentApplicantFormSaveError,
   saveApplicantForm,
+  uploadApplicantDocumentEvidence,
   type ApplicantForm,
   type ApplicantFormAnswerName,
   type ApplicantFormAnswers,
@@ -189,7 +191,14 @@ function ApplicantStepForm({
   const [validationErrors, setValidationErrors] =
     useState<ApplicantFormValidationErrors>({})
   const [version, setVersion] = useState(form.version)
+  const [documentEvidencePresent, setDocumentEvidencePresent] = useState(
+    form.documentEvidencePresent,
+  )
+  const [documentEvidenceFile, setDocumentEvidenceFile] = useState<File>()
+  const [documentEvidenceRequiredError, setDocumentEvidenceRequiredError] =
+    useState(false)
   const submissionInFlight = useRef(false)
+  const documentInputRef = useRef<HTMLInputElement>(null)
   const inputRefs = useRef<
     Partial<Record<ApplicantFormAnswerName, HTMLInputElement | null>>
   >({})
@@ -229,6 +238,22 @@ function ApplicantStepForm({
       save.reset()
     },
   })
+  const uploadDocument = useMutation({
+    mutationFn: async (file: File) => {
+      await uploadApplicantDocumentEvidence({ applicationId, file })
+      return getApplicantForm(applicationId)
+    },
+    onSuccess: (latestForm) => {
+      setVersion(latestForm.version)
+      setDocumentEvidencePresent(true)
+      setDocumentEvidenceFile(undefined)
+      setDocumentEvidenceRequiredError(false)
+      queryClient.setQueryData(
+        ['applicant-application-form', applicationId],
+        latestForm,
+      )
+    },
+  })
   const saveError = save.isError
     ? presentApplicantFormSaveError(save.error)
     : undefined
@@ -259,6 +284,11 @@ function ApplicantStepForm({
       ]
       const firstInvalidField = focusOrder.find((name) => errors[name])
       if (firstInvalidField) inputRefs.current[firstInvalidField]?.focus()
+      return
+    }
+    if (step === 'identity-and-address' && !documentEvidencePresent) {
+      setDocumentEvidenceRequiredError(true)
+      documentInputRef.current?.focus()
       return
     }
     if (submissionInFlight.current) return
@@ -420,11 +450,66 @@ function ApplicantStepForm({
                 ) : null}
               </>
             ) : (
-              <Typography role="status" tone="muted">
-                {form.documentEvidencePresent
-                  ? 'Document evidence already uploaded.'
-                  : 'No document evidence is stored yet.'}
-              </Typography>
+              <Stack spacing={1}>
+                <Typography role="status" tone="muted">
+                  {documentEvidencePresent
+                    ? 'Document evidence uploaded.'
+                    : 'Upload a JPG or PNG identity document (maximum 10 MiB).'}
+                </Typography>
+                {uploadDocument.isError ? (
+                  <Alert role="alert" severity="error">
+                    {presentApplicantDocumentEvidenceError(
+                      uploadDocument.error,
+                    )}
+                  </Alert>
+                ) : null}
+                {documentEvidenceRequiredError ? (
+                  <Typography id="document-evidence-error" role="alert">
+                    Upload document evidence before continuing.
+                  </Typography>
+                ) : null}
+                <label htmlFor="application-document-evidence">
+                  Identity document{' '}
+                  {documentEvidencePresent
+                    ? '(optional replacement)'
+                    : '(required)'}
+                </label>
+                <input
+                  accept="image/jpeg,image/png"
+                  aria-describedby={
+                    documentEvidenceRequiredError
+                      ? 'document-evidence-error'
+                      : undefined
+                  }
+                  aria-invalid={documentEvidenceRequiredError}
+                  disabled={save.isPending || uploadDocument.isPending}
+                  id="application-document-evidence"
+                  onChange={(event) => {
+                    setDocumentEvidenceFile(event.target.files?.[0])
+                    setDocumentEvidenceRequiredError(false)
+                    uploadDocument.reset()
+                  }}
+                  ref={documentInputRef}
+                  required={!documentEvidencePresent}
+                  type="file"
+                />
+                <Button
+                  disabled={!documentEvidenceFile || save.isPending}
+                  isPending={uploadDocument.isPending}
+                  onClick={() => {
+                    if (documentEvidenceFile) {
+                      uploadDocument.mutate(documentEvidenceFile)
+                    }
+                  }}
+                  type="button"
+                  variant="secondary"
+                >
+                  {documentUploadButtonLabel(
+                    uploadDocument.isPending,
+                    documentEvidencePresent,
+                  )}
+                </Button>
+              </Stack>
             )}
             <Stack
               component="div"
@@ -445,7 +530,11 @@ function ApplicantStepForm({
               >
                 Back
               </Button>
-              <Button isPending={save.isPending} type="submit">
+              <Button
+                disabled={uploadDocument.isPending}
+                isPending={save.isPending}
+                type="submit"
+              >
                 {saveButtonLabel(step, save.isPending)}
               </Button>
             </Stack>
@@ -582,6 +671,14 @@ function saveButtonLabel(
 ): string {
   if (isPending) return 'Saving…'
   return step === 'personal-details' ? 'Save and continue' : 'Save and review'
+}
+
+function documentUploadButtonLabel(
+  isPending: boolean,
+  evidencePresent: boolean,
+): string {
+  if (isPending) return 'Uploading document…'
+  return evidencePresent ? 'Replace document' : 'Upload document'
 }
 
 function localIsoDate(): string {

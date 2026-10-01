@@ -168,8 +168,11 @@ describe('Applicant application step', () => {
       '9999-12-31',
     )
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Document evidence already uploaded.',
+      'Document evidence uploaded.',
     )
+    expect(
+      screen.getByLabelText('Identity document (optional replacement)'),
+    ).toBeInTheDocument()
     expect(screen.queryByLabelText(/Document evidence/)).not.toBeInTheDocument()
   })
 
