@@ -10,54 +10,63 @@ import {
 } from '@kyc/ui'
 import { useEffect, useRef, useState } from 'react'
 
-import { accountAccessHref, isSafeJourneyPath } from './-return-target'
+import { accountAccessHref } from './-return-target'
 import styles from './account-access.module.css'
 
 export interface SignInFormProps {
   onNavigate?: (href: string) => void
+  onValidSubmit?: (credentials: {
+    email: string
+    password: string
+  }) => void | Promise<void>
   returnTo?: string
-  onSuccess: (href: string) => void
+}
+
+interface SignInErrors {
+  email?: string
+  password?: string
+}
+
+function validateCredentials(email: string, password: string): SignInErrors {
+  const errors: SignInErrors = {}
+  if (!email.trim()) {
+    errors.email = 'Enter your email address.'
+  }
+  if (!password) {
+    errors.password = 'Enter your password.'
+  }
+  return errors
 }
 
 export function SignInForm({
   onNavigate,
+  onValidSubmit,
   returnTo,
-  onSuccess,
 }: SignInFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string>()
-  const [emailError, setEmailError] = useState<string>()
-  const [passwordError, setPasswordError] = useState<string>()
+  const [errors, setErrors] = useState<SignInErrors>({})
   const emailInput = useRef<HTMLInputElement>(null)
   const passwordInput = useRef<HTMLInputElement>(null)
+  const hasErrors = Object.values(errors).some(Boolean)
 
   useEffect(() => {
-    if (emailError) {
+    if (errors.email) {
       emailInput.current?.focus()
-    } else if (passwordError) {
+    } else if (errors.password) {
       passwordInput.current?.focus()
     }
-  }, [emailError, passwordError])
+  }, [errors])
 
   async function submit(): Promise<void> {
-    setError(undefined)
-    setEmailError(undefined)
-    setPasswordError(undefined)
+    const validationErrors = validateCredentials(email, password)
+    setErrors(validationErrors)
 
-    try {
-      const destination = returnTo ?? '/applications/current'
-      if (!isSafeJourneyPath(destination)) {
-        throw new Error('The destination is invalid.')
-      }
-      onSuccess(destination)
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : 'Account access could not be completed.',
-      )
+    if (Object.keys(validationErrors).length > 0) {
+      return
     }
+
+    await onValidSubmit?.({ email: email.trim(), password })
   }
 
   return (
@@ -81,23 +90,23 @@ export function SignInForm({
                 Sign in to continue your KYC application.
               </Typography>
             </Stack>
-            {(error ?? emailError ?? passwordError) ? (
+            {hasErrors ? (
               <Alert aria-live="assertive" role="alert" severity="error">
-                {error ?? emailError ?? passwordError}
+                Check the highlighted fields and try again.
               </Alert>
             ) : null}
             <TextField
               autoComplete="email"
-              error={Boolean(emailError)}
+              error={Boolean(errors.email)}
               fullWidth
-              helperText={emailError}
+              helperText={errors.email}
               id="applicant-email"
               inputRef={emailInput}
               label="Email address"
               name="email"
               onChange={(event) => {
                 setEmail(event.target.value)
-                setEmailError(undefined)
+                setErrors((current) => ({ ...current, email: undefined }))
               }}
               required
               type="email"
@@ -105,16 +114,16 @@ export function SignInForm({
             />
             <TextField
               autoComplete="current-password"
-              error={Boolean(passwordError)}
+              error={Boolean(errors.password)}
               fullWidth
-              helperText={passwordError}
+              helperText={errors.password}
               id="applicant-password"
               inputRef={passwordInput}
               label="Password"
               name="password"
               onChange={(event) => {
                 setPassword(event.target.value)
-                setPasswordError(undefined)
+                setErrors((current) => ({ ...current, password: undefined }))
               }}
               required
               type="password"

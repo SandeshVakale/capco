@@ -17,9 +17,6 @@ export default function SignInRoute({ loaderData }: Route.ComponentProps) {
       onNavigate={(href) => {
         void navigate(href)
       }}
-      onSuccess={(href) => {
-        void navigate(href)
-      }}
       returnTo={loaderData.returnTo}
     />
   )
