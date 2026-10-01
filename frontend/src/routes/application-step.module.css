@@ -23,6 +23,14 @@
   align-items: center;
   justify-content: space-between;
 }
+.checkboxField {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+.checkboxField input {
+  margin-top: 3px;
+}
 
 @media (min-width: 768px) {
   .page {
