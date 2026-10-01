@@ -71,7 +71,7 @@ describe('Applicant application step', () => {
           formDocument({
             answers: {
               name: 'Ada Lovelace',
-              dateOfBirth: '1815-12-10',
+              dateOfBirth: '1990-12-10',
               country: 'United Kingdom',
               nationality: 'British',
               email: 'ada@example.test',
@@ -89,11 +89,19 @@ describe('Applicant application step', () => {
       'Ada Lovelace',
     )
     expect(screen.getByLabelText('Date of birth (required)')).toHaveValue(
-      '1815-12-10',
+      '1990-12-10',
     )
-    expect(screen.getByLabelText('Country (required)')).toHaveValue(
-      'United Kingdom',
+    expect(screen.getByLabelText('Date of birth (required)')).toHaveAttribute(
+      'min',
+      '1900-01-01',
     )
+    expect(screen.getByLabelText('Date of birth (required)')).toHaveAttribute(
+      'max',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+    expect(
+      screen.getByRole('combobox', { name: 'Country (required)' }),
+    ).toHaveValue('United Kingdom')
     expect(screen.getByLabelText('Nationality (required)')).toHaveValue(
       'British',
     )
@@ -147,6 +155,14 @@ describe('Applicant application step', () => {
       '12 Computing Lane',
     )
     expect(screen.getByLabelText('City (required)')).toHaveValue('London')
+    expect(screen.getByLabelText('Expiry (required)')).toHaveAttribute(
+      'min',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+    expect(screen.getByLabelText('Expiry (required)')).toHaveAttribute(
+      'max',
+      '9999-12-31',
+    )
     expect(screen.getByRole('status')).toHaveTextContent(
       'Document evidence already uploaded.',
     )
@@ -210,9 +226,12 @@ describe('Applicant application step', () => {
     await user.type(await screen.findByLabelText('Name (required)'), 'Ada')
     await user.type(
       screen.getByLabelText('Date of birth (required)'),
-      '1815-12-10',
+      '1990-12-10',
     )
-    await user.type(screen.getByLabelText('Country (required)'), 'UK')
+    await user.type(
+      screen.getByRole('combobox', { name: 'Country (required)' }),
+      'United Kingdom',
+    )
     await user.type(screen.getByLabelText('Nationality (required)'), 'British')
     await user.type(
       screen.getByLabelText('Email (required)'),
@@ -283,8 +302,8 @@ describe('Applicant application step', () => {
           formDocument({
             answers: {
               name: 'Ada',
-              dateOfBirth: '1815-12-10',
-              country: 'UK',
+              dateOfBirth: '1990-12-10',
+              country: 'United Kingdom',
               nationality: 'British',
               email: 'ada@example.test',
               phone: '+442000000000',
@@ -335,8 +354,8 @@ describe('Applicant application step', () => {
           formDocument({
             answers: {
               name: 'Server value',
-              dateOfBirth: '1815-12-10',
-              country: 'UK',
+              dateOfBirth: '1990-12-10',
+              country: 'United Kingdom',
               nationality: 'British',
               email: 'ada@example.test',
               phone: '+442000000000',

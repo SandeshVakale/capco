@@ -1,4 +1,12 @@
-import { Alert, Box, Button, Stack, TextField, Typography } from '@kyc/ui'
+import {
+  Alert,
+  Box,
+  Button,
+  ComboBoxField,
+  Stack,
+  TextField,
+  Typography,
+} from '@kyc/ui'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -17,6 +25,7 @@ import {
   validateApplicantFormStep,
   type ApplicantFormValidationErrors,
 } from '../-applicant-form-validation'
+import { countryOptions } from '../-countries'
 import styles from '../../application-step.module.css'
 
 import type { ApplicantApplicationStep } from '../-applicant-application-api'
@@ -26,6 +35,7 @@ interface FieldDefinition {
   name: Exclude<ApplicantFormAnswerName, 'consentConfirmed'>
   label: string
   autoComplete?: string
+  countryPicker?: boolean
   type?: 'date' | 'email' | 'tel' | 'text'
 }
 
@@ -36,7 +46,12 @@ const fieldDefinitions: Record<
   'personal-details': [
     { name: 'name', label: 'Name', autoComplete: 'name' },
     { name: 'dateOfBirth', label: 'Date of birth', type: 'date' },
-    { name: 'country', label: 'Country', autoComplete: 'country-name' },
+    {
+      name: 'country',
+      label: 'Country',
+      autoComplete: 'country-name',
+      countryPicker: true,
+    },
     { name: 'nationality', label: 'Nationality' },
     { name: 'email', label: 'Email', type: 'email', autoComplete: 'email' },
     { name: 'phone', label: 'Phone', type: 'tel', autoComplete: 'tel' },
@@ -44,7 +59,11 @@ const fieldDefinitions: Record<
   'identity-and-address': [
     { name: 'documentType', label: 'Document type' },
     { name: 'documentNumber', label: 'Document number' },
-    { name: 'documentCountry', label: 'Document country' },
+    {
+      name: 'documentCountry',
+      label: 'Document country',
+      countryPicker: true,
+    },
     { name: 'expiry', label: 'Expiry', type: 'date' },
     { name: 'street', label: 'Street', autoComplete: 'street-address' },
     { name: 'city', label: 'City', autoComplete: 'address-level2' },
@@ -53,6 +72,7 @@ const fieldDefinitions: Record<
       name: 'residentialCountry',
       label: 'Residential country',
       autoComplete: 'country-name',
+      countryPicker: true,
     },
   ],
 }
@@ -304,30 +324,56 @@ function ApplicantStepForm({
             }}
             spacing={2}
           >
-            {fieldDefinitions[step].map((field) => (
-              <TextField
-                autoComplete={field.autoComplete}
-                disabled={save.isPending}
-                error={Boolean(validationErrors[field.name])}
-                fullWidth
-                helperText={validationErrors[field.name]}
-                inputRef={(element) => {
-                  inputRefs.current[field.name] = element
-                }}
-                key={field.name}
-                label={`${field.label} (required)`}
-                name={field.name}
-                onChange={(event) =>
-                  editAnswers(field.name, (current) => ({
-                    ...current,
-                    [field.name]: event.target.value,
-                  }))
-                }
-                required
-                type={field.type ?? 'text'}
-                value={answers[field.name] ?? ''}
-              />
-            ))}
+            {fieldDefinitions[step].map((field) =>
+              field.countryPicker ? (
+                <ComboBoxField
+                  disabled={save.isPending}
+                  error={Boolean(validationErrors[field.name])}
+                  fullWidth
+                  helperText={validationErrors[field.name]}
+                  id={`application-${field.name}`}
+                  inputRef={(element) => {
+                    inputRefs.current[field.name] = element
+                  }}
+                  key={field.name}
+                  label={`${field.label} (required)`}
+                  name={field.name}
+                  onChange={(value) =>
+                    editAnswers(field.name, (current) => ({
+                      ...current,
+                      [field.name]: value,
+                    }))
+                  }
+                  options={countryOptions}
+                  required
+                  value={answers[field.name] ?? ''}
+                />
+              ) : (
+                <TextField
+                  autoComplete={field.autoComplete}
+                  disabled={save.isPending}
+                  error={Boolean(validationErrors[field.name])}
+                  fullWidth
+                  helperText={validationErrors[field.name]}
+                  inputRef={(element) => {
+                    inputRefs.current[field.name] = element
+                  }}
+                  key={field.name}
+                  label={`${field.label} (required)`}
+                  {...dateInputBounds(field.name)}
+                  name={field.name}
+                  onChange={(event) =>
+                    editAnswers(field.name, (current) => ({
+                      ...current,
+                      [field.name]: event.target.value,
+                    }))
+                  }
+                  required
+                  type={field.type ?? 'text'}
+                  value={answers[field.name] ?? ''}
+                />
+              ),
+            )}
             {step === 'personal-details' ? (
               <>
                 <label className={styles.checkboxField}>
@@ -467,4 +513,25 @@ function saveButtonLabel(
 ): string {
   if (isPending) return 'Saving…'
   return step === 'personal-details' ? 'Save and continue' : 'Save and review'
+}
+
+function localIsoDate(): string {
+  const now = new Date()
+  const year = String(now.getFullYear()).padStart(4, '0')
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function dateInputBounds(name: ApplicantFormAnswerName): {
+  min?: string
+  max?: string
+} {
+  if (name === 'dateOfBirth') {
+    return { min: '1900-01-01', max: localIsoDate() }
+  }
+  if (name === 'expiry') {
+    return { min: localIsoDate(), max: '9999-12-31' }
+  }
+  return {}
 }
