@@ -1,4 +1,4 @@
-import { isCountryName } from './-countries'
+import { isCountryName, isNationalityName } from './-countries'
 
 import type { ApplicantApplicationStep } from './-applicant-application-api'
 import type {
@@ -110,6 +110,14 @@ export function validateApplicantFormStep(
     ) {
       errors[name] = 'Choose a country from the list.'
     }
+  }
+
+  if (
+    step === 'personal-details' &&
+    !errors.nationality &&
+    !isNationalityName(normalized.nationality ?? '')
+  ) {
+    errors.nationality = 'Choose a nationality from the list.'
   }
 
   if (!errors.phone && step === 'personal-details') {

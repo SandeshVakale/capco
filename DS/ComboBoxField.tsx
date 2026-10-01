@@ -66,7 +66,12 @@ export function ComboBoxField({
       isDisabled={disabled}
       isInvalid={error}
       isRequired={required}
-      onInputChange={onChange}
+      onInputChange={(inputValue) => {
+        const selected = options.find(
+          (option) => (option.textValue ?? option.label) === inputValue,
+        )
+        onChange(selected?.value ?? inputValue)
+      }}
       onSelectionChange={(key) => {
         const selected = options.find((option) => option.value === key)
         if (selected) onChange(selected.value)

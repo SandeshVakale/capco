@@ -56,7 +56,7 @@ describe('Applicant form validation', () => {
           name: 'Ada Lovelace',
           dateOfBirth: '1899-12-31',
           country: 'Atlantis',
-          nationality: 'British',
+          nationality: 'Martian',
           email: 'ada@example.test',
           phone: '+442079460958',
           consentConfirmed: true,
@@ -66,6 +66,7 @@ describe('Applicant form validation', () => {
     ).toMatchObject({
       country: 'Choose a country from the list.',
       dateOfBirth: 'Date of birth must be on or after 1 January 1900.',
+      nationality: 'Choose a nationality from the list.',
     })
   })
 

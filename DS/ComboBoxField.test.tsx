@@ -49,6 +49,7 @@ describe('ComboBoxField', () => {
     await user.keyboard('{ArrowDown}{Enter}')
 
     expect(onChange).toHaveBeenLastCalledWith('United Kingdom')
+    expect(input).toHaveValue('United Kingdom')
   })
 
   it('preserves a previously saved value that is not in the current list', () => {
