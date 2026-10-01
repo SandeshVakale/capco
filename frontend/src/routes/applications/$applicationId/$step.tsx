@@ -1,101 +1,203 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Stack,
-  TextField,
-  Typography,
-} from '@kyc/ui'
-import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Alert, Box, Button, Stack, TextField, Typography } from '@kyc/ui'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 
+import {
+  getApplicantForm,
+  presentApplicantFormLoadError,
+  presentApplicantFormSaveError,
+  saveApplicantForm,
+  type ApplicantForm,
+  type ApplicantFormAnswerName,
+  type ApplicantFormAnswers,
+} from '../-applicant-form-api'
 import styles from '../../application-step.module.css'
 
+import type { ApplicantApplicationStep } from '../-applicant-application-api'
 import type { Route } from './+types/$step'
 
-const fields = {
+interface FieldDefinition {
+  name: Exclude<ApplicantFormAnswerName, 'consentConfirmed'>
+  label: string
+  autoComplete?: string
+  type?: 'date' | 'email' | 'tel' | 'text'
+}
+
+const fieldDefinitions: Record<
+  ApplicantApplicationStep,
+  readonly FieldDefinition[]
+> = {
   'personal-details': [
-    'Name',
-    'Date of birth',
-    'Country',
-    'Nationality',
-    'Email',
-    'Phone',
+    { name: 'name', label: 'Name', autoComplete: 'name' },
+    { name: 'dateOfBirth', label: 'Date of birth', type: 'date' },
+    { name: 'country', label: 'Country', autoComplete: 'country-name' },
+    { name: 'nationality', label: 'Nationality' },
+    { name: 'email', label: 'Email', type: 'email', autoComplete: 'email' },
+    { name: 'phone', label: 'Phone', type: 'tel', autoComplete: 'tel' },
   ],
   'identity-and-address': [
-    'Document type',
-    'Document number',
-    'Document country',
-    'Expiry',
-    'Street',
-    'City',
-    'Postal code',
-    'Residential country',
+    { name: 'documentType', label: 'Document type' },
+    { name: 'documentNumber', label: 'Document number' },
+    { name: 'documentCountry', label: 'Document country' },
+    { name: 'expiry', label: 'Expiry', type: 'date' },
+    { name: 'street', label: 'Street', autoComplete: 'street-address' },
+    { name: 'city', label: 'City', autoComplete: 'address-level2' },
+    { name: 'postal', label: 'Postal code', autoComplete: 'postal-code' },
+    {
+      name: 'residentialCountry',
+      label: 'Residential country',
+      autoComplete: 'country-name',
+    },
   ],
-} as const
+}
 
 export default function CurrentApplicationStepPage({
   params,
 }: Route.ComponentProps) {
-  const navigate = useNavigate()
-  const step =
-    params.step === 'identity-and-address'
-      ? 'identity-and-address'
-      : 'personal-details'
-  const [missing, setMissing] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const advance = () => {
-    const form = document.querySelector('form')
-    if (form && !form.reportValidity()) return
-    setMissing(false)
-    setSaved(true)
-    if (step === 'personal-details')
-      void navigate(
-        `/applications/${params.applicationId}/identity-and-address`,
-      )
-    else void navigate(`/applications/${params.applicationId}/review`)
-  }
+  return (
+    <ApplicantApplicationStepRoute
+      applicationId={params.applicationId}
+      stepName={params.step}
+    />
+  )
+}
 
-  if (params.step === 'review') {
+export function ApplicantApplicationStepRoute({
+  applicationId,
+  stepName,
+}: {
+  applicationId: string
+  stepName: string
+}) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const step = parseStep(stepName)
+  const form = useQuery({
+    queryKey: ['applicant-application-form', applicationId],
+    queryFn: () => getApplicantForm(applicationId),
+    gcTime: 0,
+    retry: false,
+    enabled: step !== null,
+  })
+
+  if (stepName === 'review')
     return (
-      <main className={styles.reviewPage}>
-        <Card className={styles.reviewCard}>
-          <CardContent>
-            <Stack spacing={2}>
-              <Typography component="h1" variant="heading">
-                Review application
-              </Typography>
-              <Typography>Your application is ready for review.</Typography>
-              <label>
-                <input type="checkbox" /> I confirm the information is complete
-                and accurate.
-              </label>
-              <Button
-                onClick={() =>
-                  void navigate(
-                    `/applications/${params.applicationId}/submitted`,
-                  )
-                }
-              >
-                Submit
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  void navigate(
-                    `/applications/${params.applicationId}/identity-and-address`,
-                  )
-                }
-              >
-                Return to form
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
+      <ReviewPrototype
+        applicationId={applicationId}
+        saved={hasSavedNavigationState(location.state)}
+      />
+    )
+  if (!step) {
+    return (
+      <main className={styles.page}>
+        <Alert role="alert" severity="error">
+          This application step is not available.
+        </Alert>
       </main>
     )
+  }
+  if (form.isPending) {
+    return (
+      <main className={styles.page}>
+        <Typography aria-live="polite" role="status">
+          Loading your saved answers…
+        </Typography>
+      </main>
+    )
+  }
+  if (form.isError) {
+    const error = presentApplicantFormLoadError(form.error)
+    return (
+      <main className={styles.page}>
+        <Stack spacing={2}>
+          <Alert role="alert" severity="error">
+            {error.message}
+          </Alert>
+          <Button
+            onClick={() => {
+              if (error.authenticationRequired)
+                void navigate('/sign-in?returnTo=/applications/current')
+              else void form.refetch()
+            }}
+          >
+            {error.authenticationRequired ? 'Sign in' : 'Try again'}
+          </Button>
+        </Stack>
+      </main>
+    )
+  }
+
+  return (
+    <ApplicantStepForm
+      key={`${form.data.id}:${step}`}
+      applicationId={applicationId}
+      form={form.data}
+      saved={hasSavedNavigationState(location.state)}
+      step={step}
+    />
+  )
+}
+
+function ApplicantStepForm({
+  applicationId,
+  form,
+  saved,
+  step,
+}: {
+  applicationId: string
+  form: ApplicantForm
+  saved: boolean
+  step: ApplicantApplicationStep
+}) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [answers, setAnswers] = useState<ApplicantFormAnswers>(form.answers)
+  const [version, setVersion] = useState(form.version)
+  const submissionInFlight = useRef(false)
+  const save = useMutation({
+    mutationFn: () =>
+      saveApplicantForm({ applicationId, step, answers, version }),
+    onSuccess: (savedForm) => {
+      setVersion(savedForm.version)
+      queryClient.setQueryData(
+        ['applicant-application-form', applicationId],
+        savedForm,
+      )
+      void navigate(
+        step === 'personal-details'
+          ? `/applications/${applicationId}/identity-and-address`
+          : `/applications/${applicationId}/review`,
+        { state: { saved: true } },
+      )
+    },
+    onSettled: () => {
+      submissionInFlight.current = false
+    },
+  })
+  const refreshVersion = useMutation({
+    mutationFn: () => getApplicantForm(applicationId),
+    onSuccess: (latestForm) => {
+      setVersion(latestForm.version)
+      queryClient.setQueryData(
+        ['applicant-application-form', applicationId],
+        latestForm,
+      )
+      save.reset()
+    },
+  })
+  const saveError = save.isError
+    ? presentApplicantFormSaveError(save.error)
+    : undefined
+  const refreshError = refreshVersion.isError
+    ? presentApplicantFormLoadError(refreshVersion.error)
+    : undefined
+
+  function editAnswers(
+    update: (current: ApplicantFormAnswers) => ApplicantFormAnswers,
+  ) {
+    setAnswers(update)
+    save.reset()
   }
 
   return (
@@ -111,48 +213,98 @@ export default function CurrentApplicationStepPage({
               : 'Identity and address'}
           </Typography>
           <Typography tone="muted">
-            Complete this form as part of the frontend implementation exercise.
+            Your saved answers are loaded from your application.
           </Typography>
+          {saved ? (
+            <Alert aria-live="polite" role="status" severity="success">
+              Your progress was saved.
+            </Alert>
+          ) : null}
+          {saveError ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              {saveError.message}
+            </Alert>
+          ) : null}
+          {refreshError ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              {refreshError.message}
+            </Alert>
+          ) : null}
+          {saveError?.authenticationRequired ? (
+            <Button
+              onClick={() =>
+                void navigate('/sign-in?returnTo=/applications/current')
+              }
+            >
+              Sign in
+            </Button>
+          ) : null}
+          {saveError?.conflict ? (
+            <Button
+              isPending={refreshVersion.isPending}
+              onClick={() => refreshVersion.mutate()}
+              variant="secondary"
+            >
+              {refreshVersion.isPending
+                ? 'Refreshing version…'
+                : 'Refresh form version'}
+            </Button>
+          ) : null}
           <Stack
             component="form"
             className={styles.stepForm}
             onSubmit={(event) => {
               event.preventDefault()
-              advance()
+              if (!event.currentTarget.reportValidity()) return
+              if (submissionInFlight.current) return
+              submissionInFlight.current = true
+              save.mutate()
             }}
             spacing={2}
           >
-            {fields[step].map((label) => (
-              <TextField key={label} label={`${label} (required)`} required />
+            {fieldDefinitions[step].map((field) => (
+              <TextField
+                autoComplete={field.autoComplete}
+                disabled={save.isPending}
+                fullWidth
+                key={field.name}
+                label={`${field.label} (required)`}
+                name={field.name}
+                onChange={(event) =>
+                  editAnswers((current) => ({
+                    ...current,
+                    [field.name]: event.target.value,
+                  }))
+                }
+                required
+                type={field.type ?? 'text'}
+                value={answers[field.name] ?? ''}
+              />
             ))}
             {step === 'personal-details' ? (
-              <label>
-                <input required type="checkbox" /> I confirm these details are
-                accurate and belong to me.
+              <label className={styles.checkboxField}>
+                <input
+                  checked={answers.consentConfirmed ?? false}
+                  disabled={save.isPending}
+                  name="consentConfirmed"
+                  onChange={(event) =>
+                    editAnswers((current) => ({
+                      ...current,
+                      consentConfirmed: event.target.checked,
+                    }))
+                  }
+                  required
+                  type="checkbox"
+                />
+                I confirm these details are accurate and belong to me.
               </label>
             ) : (
-              <>
-                <label htmlFor="document-evidence">
-                  Document evidence (required)
-                </label>
-                <input
-                  id="document-evidence"
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  required
-                />
-              </>
+              <Typography role="status" tone="muted">
+                {form.documentEvidencePresent
+                  ? 'Document evidence already uploaded.'
+                  : 'No document evidence is stored yet.'}
+              </Typography>
             )}
-            {missing ? (
-              <Alert role="alert" severity="error">
-                Complete all required fields before continuing.
-              </Alert>
-            ) : null}
-            {saved ? (
-              <Alert role="status" severity="success">
-                Your progress was saved in this prototype.
-              </Alert>
-            ) : null}
             <Stack
               component="div"
               className={styles.formActions}
@@ -166,14 +318,14 @@ export default function CurrentApplicationStepPage({
                   step === 'personal-details'
                     ? void navigate('/applications/current')
                     : void navigate(
-                        `/applications/${params.applicationId}/personal-details`,
+                        `/applications/${applicationId}/personal-details`,
                       )
                 }
               >
                 Back
               </Button>
-              <Button type="submit">
-                {step === 'personal-details' ? 'Continue' : 'Save and review'}
+              <Button isPending={save.isPending} type="submit">
+                {saveButtonLabel(step, save.isPending)}
               </Button>
             </Stack>
           </Stack>
@@ -181,4 +333,75 @@ export default function CurrentApplicationStepPage({
       </Box>
     </main>
   )
+}
+
+function ReviewPrototype({
+  applicationId,
+  saved,
+}: {
+  applicationId: string
+  saved: boolean
+}) {
+  const navigate = useNavigate()
+  return (
+    <main className={styles.reviewPage}>
+      <Box className={styles.reviewCard}>
+        <Stack spacing={2}>
+          <Typography component="h1" variant="heading">
+            Review application
+          </Typography>
+          <Typography>Your application is ready for review.</Typography>
+          {saved ? (
+            <Alert aria-live="polite" role="status" severity="success">
+              Your progress was saved.
+            </Alert>
+          ) : null}
+          <label className={styles.checkboxField}>
+            <input type="checkbox" /> I confirm the information is complete and
+            accurate.
+          </label>
+          <Button
+            onClick={() =>
+              void navigate(`/applications/${applicationId}/submitted`)
+            }
+          >
+            Submit
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              void navigate(
+                `/applications/${applicationId}/identity-and-address`,
+              )
+            }
+          >
+            Return to form
+          </Button>
+        </Stack>
+      </Box>
+    </main>
+  )
+}
+
+function parseStep(value: string): ApplicantApplicationStep | null {
+  return value === 'personal-details' || value === 'identity-and-address'
+    ? value
+    : null
+}
+
+function hasSavedNavigationState(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'saved' in state &&
+    state.saved === true
+  )
+}
+
+function saveButtonLabel(
+  step: ApplicantApplicationStep,
+  isPending: boolean,
+): string {
+  if (isPending) return 'Saving…'
+  return step === 'personal-details' ? 'Save and continue' : 'Save and review'
 }

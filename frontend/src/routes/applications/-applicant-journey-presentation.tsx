@@ -20,6 +20,7 @@ export interface ApplicantJourneyPresentationFixture {
 }
 
 export interface ApplicantJourneyPresentationProps extends ApplicantJourneyPresentationFixture {
+  isPrimaryActionPending?: boolean
   onPrimaryAction: () => void
 }
 
@@ -71,6 +72,7 @@ const statusText: Record<ApplicantJourneyStepState, string> = {
 
 export function ApplicantJourneyPresentation({
   entryState,
+  isPrimaryActionPending = false,
   progress,
   onPrimaryAction,
 }: ApplicantJourneyPresentationProps) {
@@ -135,11 +137,14 @@ export function ApplicantJourneyPresentation({
             <Button
               aria-describedby="journey-description journey-progress"
               fullWidth
+              isPending={isPrimaryActionPending}
               onClick={onPrimaryAction}
               size="large"
               className={styles.action}
             >
-              {stateCopy.action}
+              {isPrimaryActionPending
+                ? 'Starting application…'
+                : stateCopy.action}
             </Button>
           </Stack>
         </CardContent>
