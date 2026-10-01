@@ -233,6 +233,48 @@ describe('Applicant application step', () => {
     expect(patchRequests).toBe(1)
   })
 
+  it('blocks implausible personal details and focuses the first invalid field', async () => {
+    let patchRequests = 0
+    server.use(
+      http.get(`/api/v1/applicant-applications/${applicationId}/form`, () =>
+        HttpResponse.json(
+          formDocument({
+            answers: {
+              name: 'Sandesh',
+              dateOfBirth: '2757-03-31',
+              country: 'France',
+              nationality: 'Indian',
+              email: 'sand@example.test',
+              phone: 'laheflanla',
+              consentConfirmed: true,
+            },
+          }),
+        ),
+      ),
+      http.patch(`/api/v1/applicant-applications/${applicationId}/form`, () => {
+        patchRequests++
+        return HttpResponse.json(formDocument())
+      }),
+    )
+    const user = userEvent.setup()
+    renderStep('personal-details')
+
+    const dateOfBirth = await screen.findByLabelText('Date of birth (required)')
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }))
+
+    expect(
+      screen.getByText('Check the highlighted fields and try again.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Date of birth cannot be in the future.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Enter a valid phone number using at least 7 digits.'),
+    ).toBeInTheDocument()
+    expect(dateOfBirth).toHaveFocus()
+    expect(patchRequests).toBe(0)
+  })
+
   it('preserves entered answers after a failed save and permits retry', async () => {
     let patchRequests = 0
     server.use(

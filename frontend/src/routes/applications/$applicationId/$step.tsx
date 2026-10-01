@@ -12,6 +12,11 @@ import {
   type ApplicantFormAnswerName,
   type ApplicantFormAnswers,
 } from '../-applicant-form-api'
+import {
+  normalizeApplicantFormAnswers,
+  validateApplicantFormStep,
+  type ApplicantFormValidationErrors,
+} from '../-applicant-form-validation'
 import styles from '../../application-step.module.css'
 
 import type { ApplicantApplicationStep } from '../-applicant-application-api'
@@ -153,11 +158,21 @@ function ApplicantStepForm({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [answers, setAnswers] = useState<ApplicantFormAnswers>(form.answers)
+  const [validationErrors, setValidationErrors] =
+    useState<ApplicantFormValidationErrors>({})
   const [version, setVersion] = useState(form.version)
   const submissionInFlight = useRef(false)
+  const inputRefs = useRef<
+    Partial<Record<ApplicantFormAnswerName, HTMLInputElement | null>>
+  >({})
   const save = useMutation({
-    mutationFn: () =>
-      saveApplicantForm({ applicationId, step, answers, version }),
+    mutationFn: (answersToSave: ApplicantFormAnswers) =>
+      saveApplicantForm({
+        applicationId,
+        step,
+        answers: answersToSave,
+        version,
+      }),
     onSuccess: (savedForm) => {
       setVersion(savedForm.version)
       queryClient.setQueryData(
@@ -194,10 +209,35 @@ function ApplicantStepForm({
     : undefined
 
   function editAnswers(
+    name: ApplicantFormAnswerName,
     update: (current: ApplicantFormAnswers) => ApplicantFormAnswers,
   ) {
     setAnswers(update)
+    setValidationErrors((current) => {
+      const next = { ...current }
+      delete next[name]
+      return next
+    })
     save.reset()
+  }
+
+  function submit(): void {
+    const errors = validateApplicantFormStep(step, answers)
+    setValidationErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      const focusOrder: ApplicantFormAnswerName[] = [
+        ...fieldDefinitions[step].map(({ name }) => name),
+        ...(step === 'personal-details' ? (['consentConfirmed'] as const) : []),
+      ]
+      const firstInvalidField = focusOrder.find((name) => errors[name])
+      if (firstInvalidField) inputRefs.current[firstInvalidField]?.focus()
+      return
+    }
+    if (submissionInFlight.current) return
+    submissionInFlight.current = true
+    const normalizedAnswers = normalizeApplicantFormAnswers(answers)
+    setAnswers(normalizedAnswers)
+    save.mutate(normalizedAnswers)
   }
 
   return (
@@ -230,6 +270,11 @@ function ApplicantStepForm({
               {refreshError.message}
             </Alert>
           ) : null}
+          {Object.keys(validationErrors).length > 0 ? (
+            <Alert aria-live="assertive" role="alert" severity="error">
+              Check the highlighted fields and try again.
+            </Alert>
+          ) : null}
           {saveError?.authenticationRequired ? (
             <Button
               onClick={() =>
@@ -255,10 +300,7 @@ function ApplicantStepForm({
             className={styles.stepForm}
             onSubmit={(event) => {
               event.preventDefault()
-              if (!event.currentTarget.reportValidity()) return
-              if (submissionInFlight.current) return
-              submissionInFlight.current = true
-              save.mutate()
+              submit()
             }}
             spacing={2}
           >
@@ -266,12 +308,17 @@ function ApplicantStepForm({
               <TextField
                 autoComplete={field.autoComplete}
                 disabled={save.isPending}
+                error={Boolean(validationErrors[field.name])}
                 fullWidth
+                helperText={validationErrors[field.name]}
+                inputRef={(element) => {
+                  inputRefs.current[field.name] = element
+                }}
                 key={field.name}
                 label={`${field.label} (required)`}
                 name={field.name}
                 onChange={(event) =>
-                  editAnswers((current) => ({
+                  editAnswers(field.name, (current) => ({
                     ...current,
                     [field.name]: event.target.value,
                   }))
@@ -282,22 +329,38 @@ function ApplicantStepForm({
               />
             ))}
             {step === 'personal-details' ? (
-              <label className={styles.checkboxField}>
-                <input
-                  checked={answers.consentConfirmed ?? false}
-                  disabled={save.isPending}
-                  name="consentConfirmed"
-                  onChange={(event) =>
-                    editAnswers((current) => ({
-                      ...current,
-                      consentConfirmed: event.target.checked,
-                    }))
-                  }
-                  required
-                  type="checkbox"
-                />
-                I confirm these details are accurate and belong to me.
-              </label>
+              <>
+                <label className={styles.checkboxField}>
+                  <input
+                    aria-describedby={
+                      validationErrors.consentConfirmed
+                        ? 'consent-confirmed-error'
+                        : undefined
+                    }
+                    aria-invalid={Boolean(validationErrors.consentConfirmed)}
+                    checked={answers.consentConfirmed ?? false}
+                    disabled={save.isPending}
+                    name="consentConfirmed"
+                    onChange={(event) =>
+                      editAnswers('consentConfirmed', (current) => ({
+                        ...current,
+                        consentConfirmed: event.target.checked,
+                      }))
+                    }
+                    ref={(element) => {
+                      inputRefs.current.consentConfirmed = element
+                    }}
+                    required
+                    type="checkbox"
+                  />
+                  I confirm these details are accurate and belong to me.
+                </label>
+                {validationErrors.consentConfirmed ? (
+                  <Typography id="consent-confirmed-error" role="alert">
+                    {validationErrors.consentConfirmed}
+                  </Typography>
+                ) : null}
+              </>
             ) : (
               <Typography role="status" tone="muted">
                 {form.documentEvidencePresent
