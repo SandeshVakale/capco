@@ -78,6 +78,57 @@ async function fillPersonalDetails(page: Page, name: string): Promise<void> {
     .check()
 }
 
+async function fillIdentityAndAddress(page: Page): Promise<void> {
+  await page.getByLabel('Document type (required)').fill('Passport')
+  await page.getByLabel('Document number (required)').fill('AB123456')
+  await page
+    .getByRole('combobox', { name: 'Document country (required)' })
+    .fill('France')
+  await page.getByRole('option', { name: 'France', exact: true }).click()
+  await page.getByLabel('Expiry (required)').fill('2030-12-31')
+  await page.getByLabel('Street (required)').fill('1 Rue de Rivoli')
+  await page.getByLabel('City (required)').fill('Paris')
+  await page.getByLabel('Postal code (required)').fill('75001')
+  await page
+    .getByRole('combobox', { name: 'Residential country (required)' })
+    .fill('France')
+  await expect(
+    page.getByRole('combobox', { name: 'Residential country (required)' }),
+  ).toHaveValue('France')
+}
+
+async function uploadDocumentEvidence(
+  page: Page,
+  applicationId: string,
+): Promise<void> {
+  const status = await page.evaluate(async (id) => {
+    const token = document.cookie
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('XSRF-TOKEN='))
+      ?.slice('XSRF-TOKEN='.length)
+    const bytes = Uint8Array.from(
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      ),
+      (character) => character.charCodeAt(0),
+    )
+    const data = new FormData()
+    data.append('file', new Blob([bytes], { type: 'image/png' }), 'id.png')
+    const response = await fetch(
+      `/api/v1/applicant-applications/${id}/document-evidence`,
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {},
+        body: data,
+      },
+    )
+    return response.status
+  }, applicationId)
+  expect(status).toBe(201)
+}
+
 async function signOutThroughApi(page: Page): Promise<void> {
   const status = await page.evaluate(async () => {
     const token = document.cookie
@@ -220,5 +271,69 @@ test.describe('Applicant save and resume', () => {
     ).toBeVisible()
     await expect(page.getByText('Your progress was saved.')).toBeVisible()
     expect(patchAttempts).toBe(2)
+  })
+
+  test('submits a complete application and does not offer it for resume', async ({
+    page,
+    request,
+  }) => {
+    const email = 'submission-e2e@example.test'
+    await seedApplicant(request, email)
+    await signIn(page, email)
+    const applicationId = await startApplication(page)
+
+    await fillPersonalDetails(page, 'Submission Applicant')
+    await page.getByRole('button', { name: 'Save and continue' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Identity and address' }),
+    ).toBeVisible()
+
+    await fillIdentityAndAddress(page)
+    await page.getByRole('button', { name: 'Save and review' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Review application' }),
+    ).toBeVisible()
+
+    await uploadDocumentEvidence(page, applicationId)
+    await page.reload()
+    await page
+      .getByRole('checkbox', {
+        name: 'I confirm the information is complete and accurate.',
+      })
+      .check()
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .endsWith(`/api/v1/applicant-applications/${applicationId}`) &&
+        response.request().method() === 'PATCH',
+    )
+    await page.getByRole('button', { name: 'Submit application' }).click()
+    const response = await responsePromise
+
+    expect(response.status()).toBe(200)
+    expect(response.request().postDataJSON()).toMatchObject({
+      data: {
+        type: 'applicant-applications',
+        id: applicationId,
+        attributes: { status: 'submitted', confirmed: true },
+      },
+    })
+    await expect(
+      page.getByRole('heading', { name: 'Application submitted' }),
+    ).toBeVisible()
+    await expect(page.getByText('Your application was received')).toBeVisible()
+
+    await page.reload()
+    await expect(
+      page.getByRole('heading', { name: 'Application submitted' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'DONE' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Start your KYC application' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Resume application' }),
+    ).toHaveCount(0)
   })
 })

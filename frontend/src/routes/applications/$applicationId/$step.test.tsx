@@ -43,6 +43,10 @@ function renderStep(step: string) {
         element: <RoutedStep />,
       },
       { path: '/sign-in', element: <p>Sign-in destination</p> },
+      {
+        path: '/applications/:applicationId/submitted',
+        element: <p>Submission receipt destination</p>,
+      },
     ],
     { initialEntries: [`/applications/${applicationId}/${step}`] },
   )
@@ -406,5 +410,100 @@ describe('Applicant application step', () => {
     await user.click(screen.getByRole('button', { name: 'Save and continue' }))
 
     expect(submittedVersions).toEqual([2, 3])
+  })
+
+  it('requires confirmation and submits the latest saved form version', async () => {
+    let submittedDocument: unknown
+    server.use(
+      http.get(`/api/v1/applicant-applications/${applicationId}/form`, () =>
+        HttpResponse.json(formDocument({ version: 7 })),
+      ),
+      http.patch(
+        `/api/v1/applicant-applications/${applicationId}`,
+        async ({ request }) => {
+          submittedDocument = await request.json()
+          return HttpResponse.json({
+            data: {
+              type: 'applicant-applications',
+              id: applicationId,
+              attributes: {
+                status: 'submitted',
+                submittedAt: '2026-10-01T16:00:00Z',
+                receipt: {
+                  message: 'Your application was received',
+                  nextStep: 'The review team will review your application.',
+                },
+              },
+            },
+          })
+        },
+      ),
+    )
+    const user = userEvent.setup()
+    renderStep('review')
+
+    const submit = await screen.findByRole('button', {
+      name: 'Submit application',
+    })
+    expect(submit).toBeDisabled()
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'I confirm the information is complete and accurate.',
+      }),
+    )
+    await user.click(submit)
+
+    expect(
+      await screen.findByText('Submission receipt destination'),
+    ).toBeInTheDocument()
+    expect(submittedDocument).toEqual({
+      data: {
+        type: 'applicant-applications',
+        id: applicationId,
+        attributes: {
+          status: 'submitted',
+          confirmed: true,
+          expectedFormVersion: 7,
+        },
+      },
+    })
+  })
+
+  it('keeps the review page actionable after an incomplete submission', async () => {
+    server.use(
+      http.get(`/api/v1/applicant-applications/${applicationId}/form`, () =>
+        HttpResponse.json(formDocument({ version: 7 })),
+      ),
+      http.patch(`/api/v1/applicant-applications/${applicationId}`, () =>
+        HttpResponse.json(
+          {
+            errors: [
+              {
+                detail:
+                  'Complete the required fields before submitting: documentEvidence.',
+              },
+            ],
+          },
+          { status: 422 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+    renderStep('review')
+
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: 'I confirm the information is complete and accurate.',
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Submit application' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Complete the required fields before submitting: documentEvidence.',
+    )
+    expect(
+      screen.getByRole('button', { name: 'Submit application' }),
+    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Return to form' })).toBeEnabled()
   })
 })
