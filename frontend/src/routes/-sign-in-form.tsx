@@ -13,13 +13,18 @@ import { useEffect, useRef, useState } from 'react'
 import { accountAccessHref } from './-return-target'
 import styles from './account-access.module.css'
 
+import type { SignInSubmissionError } from './-applicant-session-api'
+
 export interface SignInFormProps {
+  isSubmitting?: boolean
+  onEdit?: () => void
   onNavigate?: (href: string) => void
   onValidSubmit?: (credentials: {
     email: string
     password: string
   }) => void | Promise<void>
   returnTo?: string
+  submissionError?: SignInSubmissionError
 }
 
 interface SignInErrors {
@@ -39,24 +44,32 @@ function validateCredentials(email: string, password: string): SignInErrors {
 }
 
 export function SignInForm({
+  isSubmitting = false,
+  onEdit,
   onNavigate,
   onValidSubmit,
   returnTo,
+  submissionError,
 }: SignInFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<SignInErrors>({})
   const emailInput = useRef<HTMLInputElement>(null)
   const passwordInput = useRef<HTMLInputElement>(null)
-  const hasErrors = Object.values(errors).some(Boolean)
+  const displayedErrors = { ...errors, ...submissionError?.fieldErrors }
+  const errorMessage =
+    submissionError?.message ??
+    (Object.values(errors).some(Boolean)
+      ? 'Check the highlighted fields and try again.'
+      : undefined)
 
   useEffect(() => {
-    if (errors.email) {
+    if (displayedErrors.email) {
       emailInput.current?.focus()
-    } else if (errors.password) {
+    } else if (displayedErrors.password) {
       passwordInput.current?.focus()
     }
-  }, [errors])
+  }, [displayedErrors.email, displayedErrors.password])
 
   async function submit(): Promise<void> {
     const validationErrors = validateCredentials(email, password)
@@ -66,7 +79,12 @@ export function SignInForm({
       return
     }
 
-    await onValidSubmit?.({ email: email.trim(), password })
+    try {
+      await onValidSubmit?.({ email: email.trim(), password })
+      setPassword('')
+    } catch {
+      setPassword('')
+    }
   }
 
   return (
@@ -90,16 +108,17 @@ export function SignInForm({
                 Sign in to continue your KYC application.
               </Typography>
             </Stack>
-            {hasErrors ? (
+            {errorMessage ? (
               <Alert aria-live="assertive" role="alert" severity="error">
-                Check the highlighted fields and try again.
+                {errorMessage}
               </Alert>
             ) : null}
             <TextField
               autoComplete="email"
-              error={Boolean(errors.email)}
+              disabled={isSubmitting}
+              error={Boolean(displayedErrors.email)}
               fullWidth
-              helperText={errors.email}
+              helperText={displayedErrors.email}
               id="applicant-email"
               inputRef={emailInput}
               label="Email address"
@@ -107,6 +126,7 @@ export function SignInForm({
               onChange={(event) => {
                 setEmail(event.target.value)
                 setErrors((current) => ({ ...current, email: undefined }))
+                onEdit?.()
               }}
               required
               type="email"
@@ -114,9 +134,10 @@ export function SignInForm({
             />
             <TextField
               autoComplete="current-password"
-              error={Boolean(errors.password)}
+              disabled={isSubmitting}
+              error={Boolean(displayedErrors.password)}
               fullWidth
-              helperText={errors.password}
+              helperText={displayedErrors.password}
               id="applicant-password"
               inputRef={passwordInput}
               label="Password"
@@ -124,6 +145,7 @@ export function SignInForm({
               onChange={(event) => {
                 setPassword(event.target.value)
                 setErrors((current) => ({ ...current, password: undefined }))
+                onEdit?.()
               }}
               required
               type="password"
@@ -132,10 +154,11 @@ export function SignInForm({
             <Button
               className={styles.submit}
               fullWidth
+              isPending={isSubmitting}
               size="large"
               type="submit"
             >
-              Sign in
+              {isSubmitting ? 'Signing in…' : 'Sign in'}
             </Button>
             <Typography
               className={styles.footer}

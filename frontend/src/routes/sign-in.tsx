@@ -1,5 +1,10 @@
+import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 
+import {
+  createApplicantSession,
+  presentSignInError,
+} from './-applicant-session-api'
 import { parseAccountAccessSearch } from './-return-target'
 import { SignInForm } from './-sign-in-form'
 
@@ -12,12 +17,23 @@ export function clientLoader({ request }: Route.ClientLoaderArgs) {
 
 export default function SignInRoute({ loaderData }: Route.ComponentProps) {
   const navigate = useNavigate()
+  const signIn = useMutation({ mutationFn: createApplicantSession })
+
   return (
     <SignInForm
+      isSubmitting={signIn.isPending}
       onNavigate={(href) => {
         void navigate(href)
       }}
+      onEdit={() => signIn.reset()}
+      onValidSubmit={async (credentials) => {
+        const session = await signIn.mutateAsync(credentials)
+        void navigate(session.href)
+      }}
       returnTo={loaderData.returnTo}
+      submissionError={
+        signIn.isError ? presentSignInError(signIn.error) : undefined
+      }
     />
   )
 }
